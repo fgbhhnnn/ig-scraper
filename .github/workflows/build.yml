@@ -16,7 +16,7 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - run: pyinstaller --noconfirm ig-scraper.spec
       - uses: actions/upload-artifact@v4
-        with: { name: IG-Scraper-windows, path: dist/IG-Scraper.exe }
+        with: { name: Social-Scraper-windows, path: dist/Social-Scraper.exe }
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
-        with: { files: dist/IG-Scraper.exe }
+        with: { files: dist/Social-Scraper.exe }

@@ -15,3 +15,5 @@ button.ghost{background:#e5e7eb;color:#111}button.danger{background:#dc2626}butt
 pre{background:#111827;color:#d1fae5;padding:10px;border-radius:8px;height:380px;overflow:auto;font-size:12px;white-space:pre-wrap}
 .tw{overflow:auto;max-height:70vh}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}
 th{background:#f9fafb;position:sticky;top:0;cursor:pointer;white-space:nowrap}td.cap{max-width:280px}td.q{max-width:380px;color:#374151}td.n{text-align:right;white-space:nowrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}header .pill{white-space:nowrap}.tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:12px;background:#e0e7ff;color:#3730a3}.tag.fb{background:#dbeafe;color:#1d4ed8}.tag.ig{background:#fce7f3;color:#9d174d}
+.pill.ok,.pill.bad{color:#fff}

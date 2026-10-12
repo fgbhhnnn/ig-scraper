@@ -37,8 +37,9 @@ class Task:
             self.set(running=False, ended=time.time(), stage='已停止' if self._stop else ('出错' if self.state['error'] else '完成'), current='')
 
     def _crawl(self, cfg, P, rid):
-        ig = IG(cfg['cookie'], float(cfg.get('delay_min', 1.5)), float(cfg.get('delay_max', 3)), self.log, lambda: self._stop)
-        if not ig.ck: raise Blocked('请先在「Cookie」页面填写 Cookie')
+        plat = P.get('platform', 'instagram')
+        ctype = P.get('content_type', 'video')        # video | post | both
+        want = lambda v: ctype == 'both' or v['content_type'] == ctype
         m = Matcher(P.get('comment_phrases') or [], P.get('use_default_rules', True), P.get('question_mark', True))
         target = int(P.get('max_videos') or 20)
         pages = max(1, min(int(P.get('comment_pages') or 2), 5))
@@ -46,45 +47,90 @@ class Task:
         d_from, d_to = P.get('date_from') or '', P.get('date_to') or ''
         must = [w.lower() for w in P.get('must_words') or [] if w.strip()]
         excl = [w.lower() for w in P.get('exclude_words') or [] if w.strip()]
-        skip = P.get('skip_existing', True)
-        seen = db.seen_codes() if skip else set()
+        seen = db.seen_codes(plat) if P.get('skip_existing', True) else set()
         mode = P.get('mode', 'keyword')
-        sources = []
-        if mode in ('keyword', 'both'): sources += [('kw', k) for k in P.get('keywords') or [] if k.strip()]
-        if mode in ('hashtag', 'both'): sources += [('tag', t) for t in P.get('hashtags') or [] if t.strip()]
-        if not sources: raise RuntimeError('没有可用的关键词/标签')
+        srcs = []
+        if mode in ('keyword', 'both'): srcs += [('kw', k.strip()) for k in P.get('keywords') or [] if k.strip()]
+        if mode in ('hashtag', 'both'): srcs += [('tag', t.strip().lstrip('#')) for t in P.get('hashtags') or [] if t.strip()]
+        if not srcs: raise RuntimeError('没有可用的关键词/标签')
+        stopf = lambda: self._stop
+        if plat == 'facebook':
+            if not cfg.get('fb_cookie'): raise Blocked('请先在「Cookie」页面填写 Facebook Cookie')
+            from .fb import FB
+            from . import config
+            cl = FB(cfg['fb_cookie'], float(cfg.get('fb_delay_min', 4)), float(cfg.get('fb_delay_max', 7)), self.log, stopf,
+                    on_cookie=lambda ck: config.save({'fb_cookie': ck}), docs=cfg.get('fb_docs') or None)
+            self.set(stage='登录 Facebook'); self.log(f'Facebook 已登录 USER_ID={cl.login()}')
+            tabs = {'video': ['videos'], 'post': ['posts'], 'both': ['videos', 'posts']}[ctype]
+            def gen(kind, s):
+                q = s if kind == 'kw' else '#' + s
+                for tab in tabs:
+                    yield from cl.search(q, tab, int(P.get('search_pages') or 3), ('kw:' if kind == 'kw' else 'tag:#') + s)
+            fetch_views = P.get('fb_fetch_views', True)
+            def comments(v):
+                own = lambda c: c['user'] == v['account'] or (c.get('uid') and c['uid'] == v.get('owner_id'))
+                hit = lambda L: any(m.is_q(c['text'], c['user'], v['account']) and not own(c) for c in L)
+                cs, ref = [], v['url']
+                if '/reel/' not in v['url']:   # reel pages carry no comments/views in HTML -> go straight to GraphQL
+                    cs, plays, _cur, ref = cl.post_page(v)
+                    if plays is not None and fetch_views: v['plays'] = plays; v['plays_known'] = True
+                if not hit(cs) and v.get('media_id'):
+                    cs += cl.root_comments(v, None, ref)
+                    if pages > 1 and not hit(cs) and v['comment_count'] > len(cs):
+                        cs += cl.root_comments(v, 'RECENT_ACTIVITY_INTENT_V1', ref)
+                seen_ = set(); out = []
+                for c in cs:
+                    if (c['user'], c['text']) not in seen_ and not own(c): seen_.add((c['user'], c['text'])); out.append(c)
+                return out
+            def done(): config.save({'fb_docs': {k: v for k, v in cl.docs.items()}})
+        else:
+            if not cfg.get('cookie'): raise Blocked('请先在「Cookie」页面填写 Instagram Cookie')
+            cl = IG(cfg['cookie'], float(cfg.get('delay_min', 1.5)), float(cfg.get('delay_max', 3)), self.log, stopf)
+            def gen(kind, s):
+                return cl.keyword_media(s, int(P.get('search_pages') or 4)) if kind == 'kw' else cl.tag_media(s)
+            def comments(v):
+                return cl.comments(v['shortcode'], pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) for c in L))
+            def done(): pass
+        PN = {'instagram': 'Instagram', 'facebook': 'Facebook'}[plat]
+        CN = {'video': '视频', 'post': '帖子', 'both': '视频+帖子'}[ctype]
         local = set()
-        self.log(f'开始：{len(sources)} 个搜索源，目标 {target} 条有提问的视频')
-        for kind, s in sources:
-            if self._stop or self.state['matched'] >= target: break
-            self.set(stage=f'搜索 {"关键词" if kind=="kw" else "标签 #"}{s}')
-            gen = ig.keyword_media(s, int(P.get('search_pages') or 4)) if kind == 'kw' else ig.tag_media(s)
-            for v in gen:
+        self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条有提问的内容')
+        try:
+            for kind, s in srcs:
                 if self._stop or self.state['matched'] >= target: break
-                code = v['shortcode']
-                if not code or code in local: continue
-                local.add(code)
-                if not v['is_video'] or v['comment_count'] < max(1, min_c) or (v['plays'] or 0) < min_p: continue
-                if d_from and v['publish_date'] < d_from or d_to and v['publish_date'] > d_to: continue
-                cap = (v['caption'] + ' ' + v['account']).lower()
-                if must and not any(w in cap for w in must): continue
-                if excl and any(w in cap for w in excl): continue
-                if code in seen:
-                    with self.lock: self.state['skipped'] += 1
-                    continue
-                with self.lock: self.state['candidates'] += 1
-                self.set(stage='检查评论区', current=v['url'])
-                cs = ig.comments(code, pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) for c in L))
-                q = [c for c in cs if m.is_q(c['text'], c['user'], v['account'])]
-                with self.lock: self.state['scanned'] += 1
-                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                db.mark_seen(code, len(q), now)
-                if not q:
-                    self.log(f'— 无提问 {v["account"]} {v["url"]} (看了 {len(cs)} 条)'); continue
-                v.update(question_count=len(q), scanned_comments=len(cs), crawled_at=now, run_id=rid,
-                         sample_questions=' || '.join(f"@{c['user']}: {c['text'][:150]}" for c in q[:3]),
-                         caption=v['caption'][:300].replace('\n', ' '))
-                db.upsert(v)
-                with self.lock: self.state['matched'] += 1
-                self.log(f'✅ {v["account"]} 提问 {len(q)} 条 · {v["url"]}')
+                self.set(stage=f'{PN} 搜索 {"关键词 " if kind=="kw" else "标签 #"}{s}')
+                for v in gen(kind, s):
+                    if self._stop or self.state['matched'] >= target: break
+                    code = v['shortcode']
+                    if not code or code in local: continue
+                    local.add(code)
+                    if not want(v) or v['comment_count'] < max(1, min_c): continue
+                    if v.get('plays_known') and (v['plays'] or 0) < min_p: continue
+                    if d_from and v['publish_date'] and v['publish_date'] < d_from or d_to and v['publish_date'] and v['publish_date'] > d_to: continue
+                    cap = (v['caption'] + ' ' + v['account']).lower()
+                    if must and not any(w in cap for w in must): continue
+                    if excl and any(w in cap for w in excl): continue
+                    if code in seen:
+                        with self.lock: self.state['skipped'] += 1
+                        continue
+                    with self.lock: self.state['candidates'] += 1
+                    self.set(stage='检查评论区', current=v['url'])
+                    cs = comments(v)
+                    if self._stop and not cs: break
+                    q = [c for c in cs if m.is_q(c['text'], c['user'], v['account'])]
+                    with self.lock: self.state['scanned'] += 1
+                    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    db.mark_seen(plat, code, len(q), now)
+                    if plat == 'facebook' and min_p and v.get('plays_known') and (v['plays'] or 0) < min_p:
+                        self.log(f'— 播放量不足 {v["plays"]} {v["url"]}'); continue
+                    if not q:
+                        self.log(f'— 无提问 {v["account"]} {v["url"]} (看了 {len(cs)} 条)'); continue
+                    v.update(question_count=len(q), scanned_comments=len(cs), crawled_at=now, run_id=rid,
+                             sample_questions=' || '.join(f"@{c['user']}: {c['text'][:150]}" for c in q[:3]),
+                             caption=(v['caption'] or '')[:300].replace('\n', ' '))
+                    db.upsert(v)
+                    with self.lock: self.state['matched'] += 1
+                    self.log(f'✅ [{PN}/{"视频" if v["content_type"]=="video" else "帖子"}] {v["account"]} 提问 {len(q)} 条 · {v["url"]}')
+        finally:
+            done()
         self.log(f'结束：匹配 {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条')

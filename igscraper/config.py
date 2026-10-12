@@ -2,7 +2,8 @@ import json, os, threading
 from .paths import data_dir
 _lock = threading.Lock()
 DEFAULT = {'cookie': '', 'ai_base': 'https://api.openai.com/v1', 'ai_key': '', 'ai_model': '',
-           'delay_min': 1.5, 'delay_max': 3.0}
+           'delay_min': 1.5, 'delay_max': 3.0,
+           'fb_cookie': '', 'fb_delay_min': 4.0, 'fb_delay_max': 7.0, 'fb_docs': {}}
 def path(): return os.path.join(data_dir(), 'config.json')
 def load():
     c = dict(DEFAULT)
