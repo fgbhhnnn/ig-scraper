@@ -19,7 +19,7 @@
 <label>API Key<input id="ai_key" type="password" placeholder="sk-…（留空=保持不变）"></label>
 <div class="row"><button class="ghost" onclick="fetchModels()">获取模型列表</button><span id="mmsg"></span></div>
 <label>模型<select id="ai_model"></select><input id="ai_model_manual" placeholder="或手动输入模型名"></label>
-<h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label></div><p class="hint">Facebook 风控更严，建议保持 4~7 秒。</p>
+<h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
 <div class="row"><button onclick="saveSettings()">保存设置</button><span id="smsg"></span></div><p class="hint" id="ddir"></p>
 </section>
 <section id="p-task" hidden><h2>任务配置</h2>
@@ -38,7 +38,7 @@ MOQ
 <label>平台<select id="platform"><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
 <label>内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
 <label class="cb" id="fbviews_w"><input type="checkbox" id="fb_fetch_views" checked>Facebook：从帖子页读取播放量</label></div>
-<p class="hint">Facebook 的话题标签会按「#标签」作为关键词搜索；Facebook 每条内容需要打开一次帖子页来读评论（约 5 秒/条），建议目标条数不要太大。</p>
+<p class="hint">Facebook 的话题标签会按「#标签」作为关键词搜索；Facebook 每条内容需要打开一次帖子页来读评论（约 2~5 秒/条），建议目标条数不要太大。</p>
 <h3>来源与数量</h3><div class="row">
 <label>来源<select id="mode"><option value="keyword">关键词搜索（推荐，更准）</option><option value="hashtag">话题标签</option><option value="both">两者都用</option></select></label>
 <label>目标条数（有提问的）<input id="max_videos" type="number" value="20" min="1"></label>

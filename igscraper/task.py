@@ -58,7 +58,7 @@ class Task:
             if not cfg.get('fb_cookie'): raise Blocked('请先在「Cookie」页面填写 Facebook Cookie')
             from .fb import FB
             from . import config
-            cl = FB(cfg['fb_cookie'], float(cfg.get('fb_delay_min', 4)), float(cfg.get('fb_delay_max', 7)), self.log, stopf,
+            cl = FB(cfg['fb_cookie'], float(cfg.get('fb_delay_min', 1.5)), float(cfg.get('fb_delay_max', 3)), self.log, stopf,
                     on_cookie=lambda ck: config.save({'fb_cookie': ck}), docs=cfg.get('fb_docs') or None)
             self.set(stage='登录 Facebook'); self.log(f'Facebook 已登录 USER_ID={cl.login()}')
             tabs = {'video': ['videos'], 'post': ['posts'], 'both': ['videos', 'posts']}[ctype]

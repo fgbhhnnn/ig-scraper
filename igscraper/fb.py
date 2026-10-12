@@ -28,7 +28,7 @@ def parse_cookie(raw):
     return p(raw)
 
 class FB:
-    def __init__(self, cookie, dmin=4.0, dmax=7.0, log=print, stop=lambda: False, on_cookie=None, docs=None):
+    def __init__(self, cookie, dmin=1.5, dmax=3.0, log=print, stop=lambda: False, on_cookie=None, docs=None):
         self.log, self.stop, self.on_cookie = log, stop, on_cookie
         self.dmin, self.dmax = dmin, dmax
         self.s = requests.Session(); self.tok = {}; self.uid = None; self.n = 0
