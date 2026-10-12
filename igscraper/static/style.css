@@ -1,0 +1,17 @@
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#f5f6f8;color:#222}
+header{display:flex;gap:16px;align-items:center;padding:10px 20px;background:#1f2937;color:#fff;position:sticky;top:0;z-index:2}
+nav{display:flex;gap:4px;flex:1}nav a{padding:6px 12px;border-radius:6px;cursor:pointer;color:#cbd5e1}nav a.on,nav a:hover{background:#374151;color:#fff}
+main{max-width:1500px;margin:0 auto;padding:16px 20px}section{background:#fff;border-radius:10px;padding:18px 22px;box-shadow:0 1px 3px #0001}
+h2{margin:0 0 10px}h3{margin:18px 0 6px;font-size:15px}.hint{color:#6b7280;font-size:13px}
+textarea,input,select{width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font:inherit;background:#fff}
+label{display:block;margin:6px 0;color:#374151}.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0}.row label{flex:0 0 auto;min-width:160px}.row .grow{flex:1}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}label.cb{display:flex;gap:6px;align-items:center;min-width:0}label.cb input{width:auto}
+button{padding:7px 14px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font:inherit}button:hover{opacity:.9}
+button.ghost{background:#e5e7eb;color:#111}button.danger{background:#dc2626}button.danger.ghost{background:#fee2e2;color:#b91c1c}button.big{padding:10px 26px;font-size:16px}
+.pill{background:#374151;padding:3px 10px;border-radius:12px;font-size:12px}.pill.ok{background:#059669}.pill.bad{background:#b91c1c}
+.ok{color:#059669}.err{color:#dc2626}
+.stats{display:flex;gap:14px}.stats div{flex:1;background:#f3f4f6;padding:10px 14px;border-radius:8px}.stats i{display:block;font-style:normal;color:#6b7280;font-size:12px}.stats b{font-size:20px}
+.bar{height:10px;background:#e5e7eb;border-radius:5px;margin:12px 0;overflow:hidden}.bar div{height:100%;width:0;background:#2563eb;transition:width .4s}
+pre{background:#111827;color:#d1fae5;padding:10px;border-radius:8px;height:380px;overflow:auto;font-size:12px;white-space:pre-wrap}
+.tw{overflow:auto;max-height:70vh}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e5e7eb;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f9fafb;position:sticky;top:0;cursor:pointer;white-space:nowrap}td.cap{max-width:280px}td.q{max-width:380px;color:#374151}td.n{text-align:right;white-space:nowrap}
