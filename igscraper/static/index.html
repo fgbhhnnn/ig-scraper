@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>社媒同行采集器 (IG + FB)</title>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>社媒同行采集器 (IG + FB + TikTok)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"></head><body>
-<header><b>社媒同行采集器 (IG + FB)</b><nav>
+<header><b>社媒同行采集器 (IG + FB + TikTok)</b><nav>
 <a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a></nav>
-<span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
+<span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
 <main>
 <section id="p-cookie"><h2>Cookie（每个平台单独保存）</h2>
 <p class="hint">支持两种格式：① 浏览器请求头里的 Cookie 字符串（a=b; c=d）；② Cookie-Editor 插件「Export → JSON」导出的数组。</p>
@@ -12,6 +12,14 @@
 <div><h3>Facebook <small class="hint">需含 c_user、xs</small></h3>
 <textarea id="fbcookie" rows="9" placeholder='粘贴 facebook.com 的 Cookie…'></textarea>
 <div class="row"><button onclick="saveCookie('facebook')">保存并校验</button><button class="ghost" onclick="checkCookie('facebook')">检测当前</button></div><p id="fbmsg"></p></div></div>
+<div><h3>TikTok <small class="hint">需含 sessionid（HttpOnly，请用 Cookie-Editor 导出 JSON）</small></h3>
+<textarea id="ttcookie" rows="6" placeholder='粘贴 tiktok.com 的 Cookie-Editor JSON 或 Cookie 字符串…（只改下面字段时可留空）'></textarea>
+<div class="grid2"><label>msToken（留空则取 Cookie 里的 msToken；推荐填 Session Storage 里的）<input id="tt_ms_token" placeholder="F12 → Application → Session Storage → msToken"></label>
+<label>device_id（localStorage → __tea_cache_tokens_1988 的 web_id，可直接粘贴整段 JSON）<input id="tt_device_id"></label></div>
+<label>User-Agent（与导出 Cookie 的浏览器一致；留空用默认 Chrome）<input id="tt_user_agent" placeholder="浏览器地址栏输入 about:version 或控制台 navigator.userAgent"></label>
+<div class="row"><button onclick="saveCookie('tiktok')">保存并校验</button><button class="ghost" onclick="checkCookie('tiktok')">检测当前</button></div><p id="ttmsg"></p>
+<h3>TikTok 签名模块</h3><p class="hint">TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。签名算法来自开源项目 <a href="https://github.com/cv-cat/TiktokApis" target="_blank">cv-cat/TiktokApis</a>（未声明开源许可证，所以本软件不内置其代码）。点击下方按钮会从 GitHub 下载该项目固定版本的 signing/pure.py 到本地数据目录并校验，也可以选择本地文件。</p>
+<div class="row"><button class="ghost" onclick="ttSigner()">下载签名模块</button><input type="file" id="ttsignfile" accept=".py" style="width:auto" onchange="ttSigner(this.files[0])"><span id="ttsign"></span></div></div>
 <p class="hint">Facebook 校验会打开一次首页（约 1 个请求）。抓取过程中 Facebook 返回的新 Cookie 会自动更新保存。</p>
 </section>
 <section id="p-settings" hidden><h2>AI 设置（OpenAI 兼容接口，可选）</h2>
@@ -19,7 +27,7 @@
 <label>API Key<input id="ai_key" type="password" placeholder="sk-…（留空=保持不变）"></label>
 <div class="row"><button class="ghost" onclick="fetchModels()">获取模型列表</button><span id="mmsg"></span></div>
 <label>模型<select id="ai_model"></select><input id="ai_model_manual" placeholder="或手动输入模型名"></label>
-<h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
+<h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label><label>TikTok 最小<input id="tt_delay_min" type="number" step="0.5" min="0.5"></label><label>TikTok 最大<input id="tt_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
 <div class="row"><button onclick="saveSettings()">保存设置</button><span id="smsg"></span></div><p class="hint" id="ddir"></p>
 </section>
 <section id="p-task" hidden><h2>任务配置</h2>
@@ -35,11 +43,12 @@ MOQ
 <div class="row"><button onclick="aiExpand()">✨ AI 裂变</button><label class="cb"><input type="checkbox" id="ai_append" checked>追加到现有列表（不勾选则替换）</label><span id="aimsg"></span></div>
 <p class="hint">AI 会把关键词/标签扩展成更多搜索词，并把「评论区关键信息」裂变成多语言询盘短语。没有 AI Key 也能用：内置询盘规则(how much/price/moq/wholesale/whatsapp/where…)始终生效，可直接手动编辑上面三个列表。</p>
 <h3>平台与内容</h3><div class="row">
-<label>平台<select id="platform"><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
+<label>平台<select id="platform"><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
 <label>内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
+<label>TikTok 评论最多翻页数（20条/页）<input id="tt_comment_pages" type="number" value="2" min="1" max="50"></label>
 <label>Facebook 评论最多翻页数（约10条/页）<input id="fb_comment_pages" type="number" value="2" min="1" max="50"></label>
 <label class="cb" id="fbviews_w"><input type="checkbox" id="fb_fetch_views" checked>Facebook：从帖子页读取播放量</label></div>
-<p class="hint">Facebook 的话题标签会按「#标签」作为关键词搜索；Facebook 每条内容需要打开一次帖子页来读评论（约 2~5 秒/条），建议目标条数不要太大。</p>
+<p class="hint">TikTok 只抓视频（内容类型自动为视频）。Facebook / TikTok 的话题标签会按「#标签」作为关键词搜索；Facebook 每条内容需要打开一次帖子页来读评论（约 2~5 秒/条），建议目标条数不要太大。</p>
 <h3>来源与数量</h3><div class="row">
 <label>来源<select id="mode"><option value="keyword">关键词搜索（推荐，更准）</option><option value="hashtag">话题标签</option><option value="both">两者都用</option></select></label>
 <label>目标条数（有提问的）<input id="max_videos" type="number" value="20" min="1"></label>
@@ -61,12 +70,12 @@ MOQ
 <div class="row"><button class="danger" onclick="stopTask()">■ 停止</button><button class="ghost" onclick="show('results')">查看结果</button></div>
 <pre id="r_log"></pre></section>
 <section id="p-results" hidden><h2>结果（本地数据库）</h2>
-<div class="row"><label>平台<select id="f_platform" onchange="loadResults()"><option value="">全部</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select></label>
+<div class="row"><label>平台<select id="f_platform" onchange="loadResults()"><option value="">全部</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
 <label>类型<select id="f_ctype" onchange="loadResults()"><option value="">全部</option><option value="video">视频</option><option value="post">帖子</option></select></label></div>
 <div class="row"><input id="q" class="grow" placeholder="搜索账号/文案/评论/来源…" oninput="renderResults()">
 <label class="cb"><input type="checkbox" id="only_run" onchange="loadResults()">仅显示最近一次任务</label>
 <button class="ghost" onclick="loadResults()">刷新</button><button onclick="exp('csv')">导出 CSV</button><button onclick="exp('xlsx')">导出 Excel</button><button class="danger ghost" onclick="clearDb()">清空数据库</button></div>
 <p class="hint" id="rcount"></p>
 <div class="tw"><table><thead><tr>
-<th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th></tr></thead><tbody id="tb"></tbody></table></div>
+<th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th></tr></thead><tbody id="tb"></tbody></table></div>
 </section></main><script src="/static/app.js"></script></body></html>

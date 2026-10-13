@@ -17,3 +17,4 @@ pre{background:#111827;color:#d1fae5;padding:10px;border-radius:8px;height:380px
 th{background:#f9fafb;position:sticky;top:0;cursor:pointer;white-space:nowrap}td.cap{max-width:280px}td.q{max-width:380px;color:#374151}td.n{text-align:right;white-space:nowrap}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}header .pill{white-space:nowrap}.tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:12px;background:#e0e7ff;color:#3730a3}.tag.fb{background:#dbeafe;color:#1d4ed8}.tag.ig{background:#fce7f3;color:#9d174d}
 .pill.ok,.pill.bad{color:#fff}
+.tag.tt{background:#e5e7eb;color:#111}

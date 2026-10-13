@@ -54,7 +54,24 @@ class Task:
         if mode in ('hashtag', 'both'): srcs += [('tag', t.strip().lstrip('#')) for t in P.get('hashtags') or [] if t.strip()]
         if not srcs: raise RuntimeError('没有可用的关键词/标签')
         stopf = lambda: self._stop
-        if plat == 'facebook':
+        if plat == 'tiktok':
+            from .tt import TT, parse_session
+            if not cfg.get('tt_cookie'): raise Blocked('请先在「Cookie」页面填写 TikTok Cookie')
+            cl = TT(parse_session(cfg['tt_cookie'], cfg.get('tt_ms_token'), cfg.get('tt_device_id'), cfg.get('tt_user_agent')),
+                    float(cfg.get('tt_delay_min', 1.5)), float(cfg.get('tt_delay_max', 3)), self.log, stopf)
+            self.set(stage='检查 TikTok 登录'); uid, un = cl.me(); self.log(f'TikTok 已登录 {un or uid}')
+            tt_pages = max(1, min(int(P.get('tt_comment_pages') or 2), 50))
+            ctype = 'video'
+            def gen(kind, s):
+                return cl.search(s if kind == 'kw' else '#' + s, int(P.get('search_pages') or 3), ('kw:' if kind == 'kw' else 'tag:#') + s)
+            def comments(v):
+                own = lambda c: c['user'] == v['account'] or (c.get('uid') and c['uid'] == v.get('owner_id'))
+                cs = cl.comments(v, tt_pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) and not own(c) for c in L))
+                return [c for c in cs if not own(c)]
+            def done():
+                from . import config as _c
+                if cl.S['ms_token'] != cfg.get('tt_ms_token'): _c.save({'tt_ms_token': cl.S['ms_token']})
+        elif plat == 'facebook':
             if not cfg.get('fb_cookie'): raise Blocked('请先在「Cookie」页面填写 Facebook Cookie')
             from .fb import FB
             from . import config
@@ -90,7 +107,7 @@ class Task:
             def comments(v):
                 return cl.comments(v['shortcode'], pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) for c in L))
             def done(): pass
-        PN = {'instagram': 'Instagram', 'facebook': 'Facebook'}[plat]
+        PN = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}[plat]
         CN = {'video': '视频', 'post': '帖子', 'both': '视频+帖子'}[ctype]
         local = set()
         self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条有提问的内容')

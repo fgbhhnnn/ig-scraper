@@ -18,7 +18,9 @@ def st(p): return send_from_directory(static_dir(), p)
 def get_cfg():
     c = config.load()
     return jsonify({'ai_base': c['ai_base'], 'ai_model': c['ai_model'], 'ai_key_masked': mask(c['ai_key']),
-                    'has_cookie': bool(c['cookie']), 'has_fb_cookie': bool(c['fb_cookie']),
+                    'has_cookie': bool(c['cookie']), 'has_fb_cookie': bool(c['fb_cookie']), 'has_tt_cookie': bool(c['tt_cookie']),
+                    'tt_ms_token_set': bool(c['tt_ms_token']), 'tt_device_id': c['tt_device_id'], 'tt_user_agent': c['tt_user_agent'],
+                    'tt_delay_min': c['tt_delay_min'], 'tt_delay_max': c['tt_delay_max'],
                     'fb_delay_min': c['fb_delay_min'], 'fb_delay_max': c['fb_delay_max'], 'delay_min': c['delay_min'], 'delay_max': c['delay_max'], 'data_dir': data_dir()})
 @app.post('/api/config')
 def set_cfg():
@@ -26,7 +28,13 @@ def set_cfg():
     if 'ai_key' in d and not d['ai_key']: d.pop('ai_key')   # empty = keep existing
     config.save(d); return get_cfg()
 
-def _check(plat, ck):
+def _check(plat, ck, extra=None):
+    if plat == 'tiktok':
+        from .tt import TT, parse_session
+        c = config.load(); e = extra or {}
+        sess = parse_session(ck, e.get('tt_ms_token', c['tt_ms_token']), e.get('tt_device_id', c['tt_device_id']), e.get('tt_user_agent', c['tt_user_agent']))
+        uid, name = TT(sess).me()
+        return f'{uid} {name}'.strip()
     if plat == 'facebook':
         from .fb import FB
         return FB(ck).login()
@@ -38,17 +46,26 @@ def set_cookie():
     d = request.json or {}; plat = d.get('platform', 'instagram')
     try: ck = parse_cookie(d.get('cookie', ''))
     except Exception as e: return jsonify(ok=False, error=f'Cookie 解析失败: {e}'), 400
-    need = 'c_user=' if plat == 'facebook' else 'sessionid='
-    if need not in ck or (plat == 'facebook' and 'xs=' not in ck):
-        return jsonify(ok=False, error=f'缺少 {"c_user / xs" if plat == "facebook" else "sessionid"}，请确认已登录后再导出'), 400
-    try: uid = _check(plat, ck)
+    KEY = {'facebook': 'fb_cookie', 'tiktok': 'tt_cookie'}.get(plat, 'cookie')
+    extra = {k: (d.get(k) or '').strip() for k in ('tt_ms_token', 'tt_device_id', 'tt_user_agent') if k in d}
+    if plat == 'tiktok':
+        from .tt import parse_session
+        if not ck and config.load()['tt_cookie']: ck = config.load()['tt_cookie']   # only updating extra fields
+        sess = parse_session(ck, extra.get('tt_ms_token'), extra.get('tt_device_id'), extra.get('tt_user_agent'))
+        if not sess['logged_in']: return jsonify(ok=False, error='缺少 sessionid（HttpOnly）。请用 Cookie-Editor 导出 JSON，普通 document.cookie 拿不到'), 400
+        if 'tt_device_id' in extra: extra['tt_device_id'] = sess['device_id']
+    else:
+        need = 'c_user=' if plat == 'facebook' else 'sessionid='
+        if need not in ck or (plat == 'facebook' and 'xs=' not in ck):
+            return jsonify(ok=False, error=f'缺少 {"c_user / xs" if plat == "facebook" else "sessionid"}，请确认已登录后再导出'), 400
+    try: uid = _check(plat, ck, extra)
     except Blocked as e: return jsonify(ok=False, error=str(e)), 400
     except Exception as e: return jsonify(ok=False, error=f'校验出错: {e}'), 400
-    config.save({'fb_cookie' if plat == 'facebook' else 'cookie': ck}); return jsonify(ok=True, user_id=uid)
+    config.save(dict({KEY: ck}, **extra)); return jsonify(ok=True, user_id=uid)
 @app.get('/api/cookie/check')
 def chk_cookie():
     plat = request.args.get('platform', 'instagram')
-    ck = config.load()['fb_cookie' if plat == 'facebook' else 'cookie']
+    ck = config.load()[{'facebook': 'fb_cookie', 'tiktok': 'tt_cookie'}.get(plat, 'cookie')]
     if not ck: return jsonify(ok=False, error='未填写')
     try: return jsonify(ok=True, user_id=_check(plat, ck))
     except Exception as e: return jsonify(ok=False, error=str(e))
@@ -71,7 +88,7 @@ def expand():
 @app.post('/api/task/start')
 def start():
     c = config.load(); d = request.json or {}
-    if not c['fb_cookie' if d.get('platform') == 'facebook' else 'cookie']:
+    if not c[{'facebook': 'fb_cookie', 'tiktok': 'tt_cookie'}.get(d.get('platform'), 'cookie')]:
         return jsonify(ok=False, error='请先在「Cookie」页面填写该平台的 Cookie'), 400
     try: return jsonify(ok=True, run_id=TASK.start(c, request.json or {}))
     except Exception as e: return jsonify(ok=False, error=str(e)), 400
@@ -84,8 +101,8 @@ def status(): return jsonify(TASK.snapshot(int(request.args.get('since', 0))))
 def results(): return jsonify(db.rows(request.args.get('q', ''), request.args.get('run_id') or None, request.args.get('platform') or None, request.args.get('content_type') or None))
 @app.post('/api/results/clear')
 def clear(): db.clear(); return jsonify(ok=True)
-PLAT = {'instagram': 'Instagram', 'facebook': 'Facebook'}; CT = {'video': '视频', 'post': '帖子'}
-HEAD = [('platform','平台'),('content_type','类型'),('account','账号'),('url','链接'),('caption','文案'),('plays','播放/观看'),('likes','点赞/心情'),('comment_count','评论数'),
+PLAT = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}; CT = {'video': '视频', 'post': '帖子'}
+HEAD = [('platform','平台'),('content_type','类型'),('account','账号'),('url','链接'),('caption','文案'),('plays','播放/观看'),('likes','点赞/心情'),('comment_count','评论数'),('shares','分享'),
         ('question_count','提问数'),('sample_questions','提问示例'),('publish_date','发布日期'),('source','来源'),('crawled_at','抓取时间')]
 def fmtv(r, k):
     v = r.get(k)
@@ -98,7 +115,7 @@ def export():
         from openpyxl import Workbook
         wb = Workbook(); ws = wb.active; ws.append([h for _, h in HEAD])
         for r in rs: ws.append([fmtv(r, k) for k, _ in HEAD])
-        for col, w in zip('ABCDEFGHIJKLM', [10, 6, 18, 45, 50, 10, 10, 10, 10, 60, 12, 24, 20]): ws.column_dimensions[col].width = w
+        for col, w in zip('ABCDEFGHIJKLMN', [10, 6, 18, 45, 50, 10, 10, 10, 8, 10, 60, 12, 24, 20]): ws.column_dimensions[col].width = w
         bio = io.BytesIO(); wb.save(bio); bio.seek(0)
         return send_file(bio, as_attachment=True, download_name=name + '.xlsx')
     s = io.StringIO(); w = csv.writer(s); w.writerow([h for _, h in HEAD])
@@ -116,6 +133,18 @@ def run(open_browser=True, port=None):
     print('社媒同行采集器已启动:', url, '数据目录:', data_dir(), flush=True)
     if open_browser: threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run('127.0.0.1', port, threaded=True, use_reloader=False)
+
+@app.get('/api/tt/signer')
+def tt_signer():
+    from . import ttsign
+    return jsonify(ttsign.status())
+@app.post('/api/tt/signer')
+def tt_signer_install():
+    from . import ttsign
+    try:
+        f = request.files.get('file')
+        return jsonify(ttsign.install(f.read() if f else None))
+    except Exception as e: return jsonify(ok=False, msg=f'安装失败: {e}')
 
 @app.post('/api/quit')
 def quit_app():

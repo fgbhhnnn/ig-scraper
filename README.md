@@ -1,6 +1,6 @@
-# 社媒同行采集器（Instagram + Facebook）
+# 社媒同行采集器（Instagram + Facebook + TikTok）
 
-在 **Instagram / Facebook** 上按**关键词 / 话题标签**搜索同行的**视频或帖子**，只保留**评论区里有人提问/询盘**的内容（评论只用来判断视频质量，每条视频最多看前 1~2 页评论，找到提问就停）。
+在 **Instagram / Facebook / TikTok** 上按**关键词 / 话题标签**搜索同行的**视频或帖子**，只保留**评论区里有人提问/询盘**的内容（评论只用来判断视频质量，每条视频最多看前 1~2 页评论，找到提问就停）。
 
 双击 `Social-Scraper.exe`（v1.0 叫 IG-Scraper.exe） → 自动在浏览器打开本地网页（`http://127.0.0.1:端口/`），不需要安装 Python。
 
@@ -49,6 +49,18 @@ pyinstaller --noconfirm ig-scraper.spec     # 输出 dist/Social-Scraper.exe（�
 
 GitHub Actions（`.github/workflows/build.yml`）会在 `windows-latest` 上自动打包：推送到 main 后在 Actions 页面下载 artifact；推送 `v*` 标签（如 `git tag v1.0.0 && git push --tags`）会自动发布 Release 并附上 Social-Scraper.exe。
 
+## TikTok 说明
+
+1. **Cookie**：必须包含 HttpOnly 的 `sessionid`，请用 Cookie-Editor 在 tiktok.com 导出 JSON（`document.cookie` 拿不到）
+2. **msToken**：推荐填浏览器 F12 → Application → Session Storage → `msToken`；留空则用 Cookie 里的 msToken（会随响应自动更新）
+3. **device_id**：F12 → Application → Local Storage → `__tea_cache_tokens_1988` 的 `web_id`（可直接粘贴整段 JSON，自动提取）。必须与导出 Cookie 的浏览器一致，否则容易触发风控
+4. **User-Agent**：填导出 Cookie 那个浏览器的 UA（控制台 `navigator.userAgent`），留空用默认 Chrome UA
+5. **签名模块**：TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。算法来自 [cv-cat/TiktokApis](https://github.com/cv-cat/TiktokApis)（纯 Python 实现，感谢原作者）。该项目**没有声明开源许可证**，因此本仓库不包含它的代码；在 Cookie 页点击「下载签名模块」，软件会从 GitHub 下载其固定版本（commit `b3b2a44`）的 `signing/pure.py` 到 `igs_data/tiktok_sign/`，并校验 SHA-256。也可以手动选择本地文件。该文件只依赖 Python 标准库，在 exe 内运行，**不需要安装 Node 或 Python**
+6. 请求使用 [curl_cffi](https://github.com/lexiforest/curl_cffi)（MIT）模拟 Chrome 的 TLS 指纹，普通 requests 会被返回空响应
+7. 关键词搜索 `/api/search/general/full/`，只保留评论数 > 0 的视频；评论用 `/api/comment/list/` 游标翻页（20 条/页，「TikTok 评论最多翻页数」默认 2），找到提问就停止；作者本人评论不计入。话题标签按「#标签」搜索
+8. 字段：账号、链接、文案、播放、点赞、评论数、分享、发布日期、来源
+9. 节奏默认 1.5~3 秒；遇到 status_code 2484 等风控码会等待重试，连续失败则停止并给出中文提示；返回空响应通常表示 Cookie / device_id / msToken 不匹配
+
 ## Facebook 说明
 
 - 视频：搜索 `/search/videos/?q=`；帖子：搜索 `/search/posts/?q=`（帖子页里也会混有视频，按附件类型区分）。话题标签按「#标签」作为关键词搜索
@@ -66,3 +78,4 @@ GitHub Actions（`.github/workflows/build.yml`）会在 `windows-latest` 上自�
 - 提问数为前 1~2 页评论里的数量，仅作相对参考
 - 关键词匹配规则较宽松，带问号即算提问（可在任务页关闭）
 - Instagram 搜索结果以 Reels 为主，图片/文字帖子较少，抓帖子建议搭配话题标签
+- TikTok 依赖第三方签名算法，TikTok 更新 WebMssdk 后可能失效，需要等原项目更新后替换签名文件
