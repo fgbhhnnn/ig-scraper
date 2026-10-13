@@ -118,3 +118,24 @@ class IG:
             if (until and until(allc)) or not e['page_info']['has_next_page']: break
             cur = e['page_info']['end_cursor']
         return allc
+
+    def comments_full(self, shortcode, max_pages=4, max_comments=200, replies=True):
+        """Rich comments: [{id,user,text,likes,time,is_reply}] incl. preview of threaded replies; also returns owner username."""
+        cur, out, owner = None, [], ''
+        for _ in range(max_pages):
+            if self.stop() or len(out) >= max_comments: break
+            var = {'shortcode': shortcode, 'first': 50}
+            if cur: var['after'] = cur
+            d = self.get('/graphql/query/', {'query_hash': COMMENT_QH, 'variables': json.dumps(var)})
+            try: sm = d['data']['shortcode_media']; e = sm['edge_media_to_parent_comment']
+            except Exception: break
+            owner = owner or ((sm.get('owner') or {}).get('username') or '')
+            for n in e['edges']:
+                nodes = [(n['node'], 0)]
+                if replies: nodes += [(r['node'], 1) for r in (n['node'].get('edge_threaded_comments') or {}).get('edges', [])]
+                for x, rep in nodes:
+                    out.append({'id': str(x['id']), 'user': x['owner']['username'], 'text': x['text'].replace('\n', ' '),
+                                'likes': (x.get('edge_liked_by') or {}).get('count', 0), 'time': x.get('created_at') or 0, 'is_reply': rep})
+            if not e['page_info']['has_next_page']: break
+            cur = e['page_info']['end_cursor']
+        return out[:max_comments], owner

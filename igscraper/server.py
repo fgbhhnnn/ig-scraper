@@ -1,4 +1,4 @@
-import csv, io, os, socket, threading, webbrowser, time
+import csv, io, os, re, socket, threading, webbrowser, time
 from flask import Flask, jsonify, request, send_from_directory, Response, send_file
 from . import config, db, ai
 from .ig import IG, parse_cookie, Blocked
@@ -7,6 +7,8 @@ from .paths import static_dir, data_dir
 
 app = Flask(__name__, static_folder=None)
 TASK = Task()
+from .ctask import CommentTask
+CTASK = CommentTask()
 def mask(k): return (k[:4] + '…' + k[-4:]) if k and len(k) > 10 else ('已填写' if k else '')
 
 @app.get('/')
@@ -90,6 +92,7 @@ def start():
     c = config.load(); d = request.json or {}
     if not c[{'facebook': 'fb_cookie', 'tiktok': 'tt_cookie'}.get(d.get('platform'), 'cookie')]:
         return jsonify(ok=False, error='请先在「Cookie」页面填写该平台的 Cookie'), 400
+    if _running(): return jsonify(ok=False, error='已有任务在运行，请先停止'), 400
     try: return jsonify(ok=True, run_id=TASK.start(c, request.json or {}))
     except Exception as e: return jsonify(ok=False, error=str(e)), 400
 @app.post('/api/task/stop')
@@ -178,6 +181,73 @@ def tt_signer_install():
         f = request.files.get('file')
         return jsonify(ttsign.install(f.read() if f else None))
     except Exception as e: return jsonify(ok=False, msg=f'安装失败: {e}')
+
+def _running():
+    return (TASK.thread and TASK.thread.is_alive()) or (CTASK.thread and CTASK.thread.is_alive())
+@app.post('/api/ctask/start')
+def cstart():
+    d = request.json or {}
+    if _running(): return jsonify(ok=False, error='已有任务在运行，请先停止'), 400
+    if d.get('use_filtered'):
+        d['items'] = db.rows(d.get('q', ''), None, d.get('platform') or None, d.get('content_type') or None)
+    elif d.get('keys'): d['items'] = db.get_videos(d['keys'])
+    d['max_videos'] = len(d.get('items') or []) + len(d.get('urls') or [])
+    try: return jsonify(ok=True, run_id=CTASK.start(config.load(), d), count=d['max_videos'])
+    except Exception as e: return jsonify(ok=False, error=str(e)), 400
+@app.post('/api/ctask/stop')
+def cstop(): CTASK.stop(); return jsonify(ok=True)
+@app.get('/api/ctask/status')
+def cstatus(): return jsonify(CTASK.snapshot(int(request.args.get('since', 0))))
+
+def _filtered_comments(a):
+    from .cfilter import compile_filter, FilterError
+    rows = db.comment_rows(a.get('platform') or None, a.get('run_id') or None, a.get('post_url') or None)
+    try: f = compile_filter(a.get('expr', ''))
+    except FilterError as e: return None, str(e)
+    exw = [w.strip().lower() for w in re.split(r'[,，\n]', a.get('ex_words', '')) if w.strip()]
+    exu = [w.strip().lower() for w in re.split(r'[,，\n]', a.get('ex_users', '')) if w.strip()]
+    hide_author, hide_spam = a.get('hide_author', '1') == '1', a.get('hide_spam', '0') == '1'
+    only_m = a.get('only_matched', '0') == '1'
+    out = []
+    for r in rows:
+        tl = (r['text'] or '').lower()
+        if hide_author and r['is_author']: continue
+        if hide_spam and r['is_spam']: continue
+        if only_m and not r['matched']: continue
+        if exw and any(w in tl for w in exw): continue
+        if exu and (r['commenter'] or '').lower() in exu: continue
+        if f(r): out.append(r)
+    return out, None
+@app.get('/api/comments')
+def comments():
+    rows, err = _filtered_comments(request.args)
+    if err: return jsonify(ok=False, error=err)
+    langs = {}
+    for r in rows: langs[(r['lang'], r['lang_name'])] = langs.get((r['lang'], r['lang_name']), 0) + 1
+    lim = int(request.args.get('limit', 2000))
+    return jsonify(ok=True, total=len(rows), rows=rows[:lim], langs=sorted([{'lang': k[0], 'name': k[1], 'n': v} for k, v in langs.items()], key=lambda x: -x['n']))
+CHEAD = [('platform','平台'),('post_url','帖子链接'),('account','账号'),('commenter','评论者'),('text','评论内容'),('lang','语言代码'),
+         ('lang_name','语言'),('region','可能地区(按语言推断)'),('likes','点赞'),('ctime','评论时间'),('is_reply','是否回复'),
+         ('matched','询盘匹配'),('is_author','作者本人'),('crawled_at','抓取时间')]
+@app.get('/api/comments/export')
+def cexport():
+    a = request.args
+    rows, err = _filtered_comments(a) if a.get('all') != '1' else (db.comment_rows(), None)
+    if err: return Response(err, status=400)
+    name = time.strftime('comments_%Y%m%d_%H%M%S')
+    val = lambda r, k: PLAT.get(r[k], r[k]) if k == 'platform' else ('是' if r[k] else '否') if k in ('is_reply', 'matched', 'is_author') else r[k]
+    if a.get('fmt') == 'xlsx':
+        from openpyxl import Workbook
+        wb = Workbook(); ws = wb.active; ws.append([h for _, h in CHEAD])
+        for r in rows: ws.append([val(r, k) for k, _ in CHEAD])
+        for col, w in zip('ABCDEFGHIJKLMN', [10, 45, 18, 18, 70, 8, 10, 24, 8, 16, 8, 8, 8, 18]): ws.column_dimensions[col].width = w
+        bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name=name + '.xlsx')
+    s = io.StringIO(); w = csv.writer(s); w.writerow([h for _, h in CHEAD])
+    for r in rows: w.writerow([val(r, k) for k, _ in CHEAD])
+    return Response('\ufeff' + s.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={name}.csv'})
+@app.post('/api/comments/clear')
+def cclear(): db.clear_comments(); return jsonify(ok=True)
 
 @app.post('/api/quit')
 def quit_app():

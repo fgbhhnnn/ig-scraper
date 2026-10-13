@@ -4,7 +4,7 @@ const lines=id=>$(id).value.split(/\n/).map(s=>s.trim()).filter(Boolean);
 const words=id=>$(id).value.split(/[,，\n]/).map(s=>s.trim()).filter(Boolean);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function msg(id,t,ok){$(id).textContent=t;$(id).className=ok?'ok':'err'}
-function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();localStorage.page=p}
+function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();if(p==='comments'){cLoad();cPoll()}localStorage.page=p}
 document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.p));
 const PK={instagram:['ckstat','IG: '],facebook:['fbstat','FB: '],tiktok:['ttstat','TT: ']};
 function ckPill(p,ok,t){const e=$(PK[p][0]);e.textContent=PK[p][1]+t;e.className='pill '+(ok?'ok':'bad')}
@@ -39,13 +39,13 @@ async function poll(){clearTimeout(timer);const s=await api('/api/task/status?si
  $('r_bar').style.width=Math.min(100,s.target?s.matched/s.target*100:0)+'%';$('r_cur').textContent=s.current;$('r_cur').href=s.current||'#';
  if(s.logs.length){$('r_log').textContent+=s.logs.join('\n')+'\n';$('r_log').scrollTop=1e9}logN=s.log_total;if(s.run_id)lastRun=s.run_id;
  if(s.running)timer=setTimeout(poll,1500)}
-let R=[],sk='question_count',sd=-1;
+const SEL=new Set();let R=[],sk='question_count',sd=-1;
 async function loadResults(){const p=new URLSearchParams({platform:$('f_platform').value,content_type:$('f_ctype').value});if($('only_run').checked&&lastRun)p.set('run_id',lastRun);R=await api('/api/results?'+p);renderResults()}
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sd=sk===k?-sd:-1;sk=k;renderResults()});
 function renderResults(){const q=$('q').value.toLowerCase();let rs=R.filter(r=>!q||[r.account,r.caption,r.sample_questions,r.source].join(' ').toLowerCase().includes(q));
  rs.sort((a,b)=>{const x=a[sk],y=b[sk];return(typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y)))*sd});
  $('rcount').textContent=`共 ${rs.length} 条（数据库 ${R.length} 条）`;
- $('tb').innerHTML=rs.map(r=>{const fb=r.platform==='facebook',tt=r.platform==='tiktok';return`<tr><td><span class="tag ${fb?'fb':tt?'tt':'ig'}">${fb?'Facebook':tt?'TikTok':'Instagram'}</span></td><td>${r.content_type==='post'?'帖子':'视频'}</td>
+ $('tb').innerHTML=rs.map(r=>{const fb=r.platform==='facebook',tt=r.platform==='tiktok';const k=r.platform+'|'+r.shortcode;return`<tr><td><input type="checkbox" class="sel" value="${esc(k)}" ${SEL.has(k)?'checked':''} onchange="this.checked?SEL.add(this.value):SEL.delete(this.value)" style="width:auto"></td><td><span class="tag ${fb?'fb':tt?'tt':'ig'}">${fb?'Facebook':tt?'TikTok':'Instagram'}</span></td><td>${r.content_type==='post'?'帖子':'视频'}</td>
  <td>${fb?esc(r.account):`<a href="${tt?'https://www.tiktok.com/@':'https://www.instagram.com/'}${esc(r.account)}${tt?'':'/'}" target="_blank">${esc(r.account)}</a>`}</td><td><a href="${esc(r.url)}" target="_blank">${fb?'打开':esc(r.shortcode)}</a></td>
  <td class="cap">${esc((r.caption||'').slice(0,120))}</td><td class="n">${(r.plays?r.plays.toLocaleString():'-')}</td><td class="n">${(r.likes||0).toLocaleString()}</td><td class="n">${r.comment_count}</td><td class="n">${r.shares==null?'-':r.shares.toLocaleString()}</td><td class="n"><b>${r.question_count}</b></td>
  <td class="q">${esc(r.sample_questions).replace(/ \|\| /g,'<br>')}</td><td>${esc(r.publish_date)}</td><td>${esc(r.source)}</td></tr>`}).join('')}
@@ -56,3 +56,24 @@ restore();loadCfg();show(location.hash.slice(1)||localStorage.page||'cookie');ap
 
 async function loadSigner(){const d=await api('/api/tt/signer');$('ttsign').textContent=d.msg;$('ttsign').className=d.ok?'ok':'err'}
 async function ttSigner(f){$('ttsign').textContent='安装中…';let d;if(f){const fd=new FormData();fd.append('file',f);d=await(await fetch('/api/tt/signer',{method:'POST',body:fd})).json()}else d=await api('/api/tt/signer',{});$('ttsign').textContent=d.msg;$('ttsign').className=d.ok?'ok':'err'}
+
+function selAll(v){document.querySelectorAll('.sel').forEach(c=>{c.checked=v;v?SEL.add(c.value):SEL.delete(c.value)})}
+const cParams=()=>({max_comments:+$('c_max').value||100,max_pages:+$('c_pages').value||5,replies:$('c_replies').checked,phrases:$('c_phr').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean)});
+async function cGo(b){const d=await api('/api/ctask/start',Object.assign(cParams(),b));if(!d.ok)return alert(d.error);cLogN=0;$('c_log').textContent='';cRun=d.run_id;show('comments')}
+function crawlSel(){if(!SEL.size)return alert('请先勾选要爬评论的内容');cGo({keys:[...SEL]})}
+function crawlFiltered(){if(!confirm('将爬取当前筛选条件下的全部内容的评论，确定？'))return;cGo({use_filtered:1,q:$('q').value,platform:$('f_platform').value,content_type:$('f_ctype').value})}
+function cStart(){const u=$('c_urls').value.split(/\n/).map(s=>s.trim()).filter(Boolean);if(!u.length)return alert('请粘贴链接');cGo({urls:u})}
+let cLogN=0,cTimer=null,cRun=null,cT2=null;
+async function cPoll(){clearTimeout(cTimer);const s=await api('/api/ctask/status?since='+cLogN);if(s.log_total<cLogN){cLogN=0;$('c_log').textContent=''}
+ $('c_stage').textContent=s.stage;$('c_done').textContent=s.scanned+' / '+s.target;$('c_total').textContent=s.matched;$('c_bar').style.width=(s.target?s.scanned/s.target*100:0)+'%';
+ if(s.logs.length){$('c_log').textContent+=s.logs.join('\n')+'\n';$('c_log').scrollTop=1e9}cLogN=s.log_total;if(s.run_id)cRun=s.run_id;
+ if(s.running){cTimer=setTimeout(cPoll,1500);if(Date.now()-(cPoll.last||0)>5000){cPoll.last=Date.now();cLoad()}}else if(cPoll.wasRunning)cLoad();cPoll.wasRunning=s.running}
+function cQ(){const p=new URLSearchParams({expr:$('c_expr').value,platform:$('c_plat').value,ex_words:$('c_exw').value,ex_users:$('c_exu').value,hide_author:$('c_hauthor').checked?1:0,hide_spam:$('c_hspam').checked?1:0,only_matched:$('c_onlym').checked?1:0});if($('c_run').checked&&cRun)p.set('run_id',cRun);return p}
+function cLoadSoon(){clearTimeout(cT2);cT2=setTimeout(cLoad,300)}
+const PN={instagram:'Instagram',facebook:'Facebook',tiktok:'TikTok'};
+async function cLoad(){const d=await api('/api/comments?'+cQ());if(!d.ok){$('c_err').textContent='❌ '+d.error;return}$('c_err').textContent='';
+ $('c_count').textContent=`共 ${d.total} 条`+(d.total>d.rows.length?`（表格显示前 ${d.rows.length} 条，导出包含全部）`:'');
+ const mx=Math.max(1,...d.langs.map(l=>l.n));$('c_langs').innerHTML=d.langs.slice(0,20).map(l=>`<div class="lb"><span>${esc(l.name)} (${esc(l.lang)})</span><i style="width:${l.n/mx*300}px"></i><b>${l.n}</b></div>`).join('');
+ $('c_tb').innerHTML=d.rows.map(r=>`<tr class="${r.matched?'m':''}"><td>${PN[r.platform]||r.platform}</td><td><a href="${esc(r.post_url)}" target="_blank">打开</a></td><td>${esc(r.account)}</td><td>${esc(r.commenter)}</td><td class="q">${esc(r.text)}</td><td>${esc(r.lang_name)}</td><td>${esc(r.region)}</td><td class="n">${r.likes}</td><td>${esc(r.ctime)}</td><td>${r.is_reply?'↳':''}</td><td>${r.matched?'✅':''}</td></tr>`).join('')}
+function cExp(f,all){const p=cQ();p.set('fmt',f);if(all)p.set('all','1');location.href='/api/comments/export?'+p}
+async function cClear(){if(confirm('确定清空评论库？')){await api('/api/comments/clear',{});cLoad()}}

@@ -9,6 +9,8 @@ def conn():
     return c
 def _cols(c, t): return [r[1] for r in c.execute(f'PRAGMA table_info({t})')]
 def init():
+    _init_main(); init_comments()
+def _init_main():
     with _lock, conn() as c:
         # v1.0 schema had no platform column -> migrate (all old rows are Instagram videos)
         if _cols(c, 'videos') and 'platform' not in _cols(c, 'videos'):
@@ -46,3 +48,33 @@ def rows(q='', run_id=None, platform=None, content_type=None):
     with conn() as c: return [dict(r) for r in c.execute(sql, a)]
 def clear():
     with _lock, conn() as c: c.execute('DELETE FROM videos'); c.execute('DELETE FROM seen')
+
+CCOLS = ['platform','comment_id','post_id','post_url','account','commenter','text','lang','lang_name','region','likes',
+         'ctime','is_reply','is_author','is_spam','matched','crawled_at','run_id']
+def init_comments():
+    with _lock, conn() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS comments(platform TEXT NOT NULL, comment_id TEXT NOT NULL, post_id TEXT, post_url TEXT,
+          account TEXT, commenter TEXT, text TEXT, lang TEXT, lang_name TEXT, region TEXT, likes INTEGER, ctime TEXT, is_reply INTEGER,
+          is_author INTEGER, is_spam INTEGER, matched INTEGER, crawled_at TEXT, run_id TEXT, PRIMARY KEY(platform, comment_id))''')
+def upsert_comments(rows):
+    with _lock, conn() as c:
+        c.executemany(f"INSERT OR REPLACE INTO comments({','.join(CCOLS)}) VALUES({','.join('?'*len(CCOLS))})",
+                      [[r.get(k) for k in CCOLS] for r in rows])
+def comment_rows(platform=None, run_id=None, post_url=None):
+    sql, a = 'SELECT * FROM comments WHERE 1=1', []
+    if platform: sql += ' AND platform=?'; a.append(platform)
+    if run_id: sql += ' AND run_id=?'; a.append(run_id)
+    if post_url: sql += ' AND post_url=?'; a.append(post_url)
+    sql += ' ORDER BY crawled_at DESC, likes DESC'
+    with conn() as c: return [dict(r) for r in c.execute(sql, a)]
+def get_videos(keys):
+    """keys: list of 'platform|shortcode'"""
+    out = []
+    with conn() as c:
+        for k in keys:
+            p, _, s = k.partition('|')
+            r = c.execute('SELECT * FROM videos WHERE platform=? AND shortcode=?', (p, s)).fetchone()
+            if r: out.append(dict(r))
+    return out
+def clear_comments():
+    with _lock, conn() as c: c.execute('DELETE FROM comments')

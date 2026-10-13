@@ -124,3 +124,39 @@ class TT:
             if (until and until(out)) or not d.get('has_more'): break
             cur = str(d.get('cursor'))
         return out
+
+    def resolve(self, url):
+        """Pasted TikTok URL (incl. vm./vt. short links) -> item dict."""
+        if not re.search(r'/video/\d+', url):
+            r = self.creq.get(url, headers={'User-Agent': self.S['user_agent']}, impersonate='chrome', allow_redirects=True, timeout=30)
+            url = r.url
+        m = re.search(r'tiktok\.com/@([^/?#]+)/(?:video|photo)/(\d+)', url)
+        if not m: raise RuntimeError(f'无法识别的 TikTok 链接：{url}')
+        return {'platform': 'tiktok', 'shortcode': m.group(2), 'media_id': m.group(2), 'account': m.group(1),
+                'url': f'https://www.tiktok.com/@{m.group(1)}/video/{m.group(2)}', 'caption': '', 'content_type': 'video'}
+
+    def comments_full(self, item, max_pages=5, max_comments=200, replies=False, max_reply_threads=10):
+        ref = item['url']; cur = '0'; out = []; threads = []
+        for _ in range(max_pages):
+            if self.stop() or len(out) >= max_comments: break
+            d = self.api('/api/comment/list/', dict(aweme_id=item['shortcode'], count='20', cursor=cur, current_region='SG',
+                         enter_from='tiktok_web', fromWeb='1', is_non_personalized='false'), ref, 'video', 'ja-JP')
+            if not d: break
+            for c in d.get('comments') or []:
+                u = c.get('user') or {}
+                out.append({'id': str(c.get('cid')), 'user': u.get('unique_id') or u.get('nickname') or '', 'uid': u.get('uid', ''),
+                            'text': (c.get('text') or '').replace('\n', ' '), 'likes': c.get('digg_count') or 0,
+                            'time': c.get('create_time') or 0, 'is_reply': 0})
+                if (c.get('reply_comment_total') or 0) > 0: threads.append(str(c.get('cid')))
+            if not d.get('has_more'): break
+            cur = str(d.get('cursor'))
+        if replies:
+            for cid in threads[:max_reply_threads]:
+                if self.stop() or len(out) >= max_comments: break
+                d = self.api('/api/comment/list/reply/', dict(item_id=item['shortcode'], comment_id=cid, count='20', cursor='0'), ref, 'video', 'ja-JP')
+                for c in (d or {}).get('comments') or []:
+                    u = c.get('user') or {}
+                    out.append({'id': str(c.get('cid')), 'user': u.get('unique_id') or '', 'uid': u.get('uid', ''),
+                                'text': (c.get('text') or '').replace('\n', ' '), 'likes': c.get('digg_count') or 0,
+                                'time': c.get('create_time') or 0, 'is_reply': 1})
+        return out[:max_comments]

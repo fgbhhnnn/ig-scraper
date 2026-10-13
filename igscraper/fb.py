@@ -221,8 +221,11 @@ class FB:
         cs, pi = [], [None]
         def f(d):
             if d.get('__typename') == 'Comment' and isinstance(d.get('body'), dict):
-                a = d.get('author') or {}
-                cs.append({'user': a.get('name') or '', 'uid': a.get('id') or '', 'text': (d['body'].get('text') or '').replace('\n', ' ')})
+                a = d.get('author') or {}; dj = json.dumps(d.get('feedback') or {})
+                lk = re.search(r'"(?:reaction_count|reactors)": \{"count": (\d+)', dj) or re.search(r'"(?:reaction_count|reactors)": \{"count": (\d+)', json.dumps(d)[:20000])
+                cs.append({'user': a.get('name') or '', 'uid': a.get('id') or '', 'text': (d['body'].get('text') or '').replace('\n', ' '),
+                           'id': str(d.get('legacy_fbid') or d.get('id') or ''), 'time': d.get('created_time') or 0,
+                           'likes': int(lk.group(1)) if lk else 0, 'is_reply': 1 if (d.get('depth') or 0) > 0 else 0})
             c = d.get('comment_rendering_instance_for_feed_location')
             if isinstance(c, dict) and isinstance(c.get('comments'), dict) and c['comments'].get('page_info'):
                 pi[0] = c['comments']['page_info']
@@ -256,3 +259,28 @@ class FB:
             if not more: break
             cs += more
         return cs
+
+    def resolve(self, url):
+        """Pasted FB URL -> item dict with media_id (feedback id), account, owner_id."""
+        import base64
+        if not self.uid: self.login()
+        r = self.nav(url, 'https://www.facebook.com/')
+        if not r: raise RuntimeError('无法打开该 Facebook 链接')
+        t = r.text; u = r.url
+        m = re.search(r'/(?:posts|videos|reel|permalink)/(?:[^/]*/)?(\d{8,})', u) or re.search(r'(?:story_fbid|fbid|v)=(\d{8,})', u)
+        vid = m.group(1) if m else ''
+        fids = [(x.start(), x.group(0)) for x in re.finditer(r'ZmVlZGJhY2s6[A-Za-z0-9+/=]+', t)]
+        fid = ''
+        cand = base64.b64encode(f'feedback:{vid}'.encode()).decode() if vid else ''
+        if cand and cand.rstrip('=') in t: fid = cand
+        elif fids and vid:
+            pos = [p.start() for p in re.finditer(vid, t)]
+            if pos: fid = min(fids, key=lambda f: min(abs(f[0] - p) for p in pos))[1]
+        if not fid and fids:
+            from collections import Counter
+            fid = Counter(f for _, f in fids).most_common(1)[0][0]
+        if not fid: raise RuntimeError('页面里没有找到 feedback id（可能需要登录或链接无效）')
+        own = re.search(r'"owning_profile":\{"__typename":"\w+","name":"((?:[^"\\]|\\.)*)","id":"(\d+)"', t)
+        name = json.loads('"' + own.group(1) + '"') if own else ''
+        return {'platform': 'facebook', 'shortcode': vid or fid, 'media_id': fid, 'url': u, 'account': name,
+                'owner_id': own.group(2) if own else '', 'caption': '', 'content_type': 'video' if '/reel/' in u or '/videos/' in u else 'post'}

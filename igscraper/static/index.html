@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>社媒同行采集器 (IG + FB + TikTok)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header><b>社媒同行采集器 (IG + FB + TikTok)</b><nav>
-<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a></nav>
+<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a><a data-p="comments">⑥ 评论爬取</a></nav>
 <a id="addr" class="pill" href="/" title="本程序地址，可收藏"></a><span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
 <main>
 <section id="p-cookie"><h2>Cookie（每个平台单独保存）</h2>
@@ -76,7 +76,26 @@ MOQ
 <div class="row"><input id="q" class="grow" placeholder="搜索账号/文案/评论/来源…" oninput="renderResults()">
 <label class="cb"><input type="checkbox" id="only_run" onchange="loadResults()">仅显示最近一次任务</label>
 <button class="ghost" onclick="loadResults()">刷新</button><button onclick="exp('csv')">导出 CSV</button><button onclick="exp('xlsx')">导出 Excel</button><button class="danger ghost" onclick="clearDb()">清空数据库</button></div>
+<div class="row"><button onclick="crawlSel()">💬 爬取选中内容的评论</button><button class="ghost" onclick="crawlFiltered()">💬 爬取当前筛选的全部内容的评论</button><span class="hint">爬取参数在「⑥ 评论爬取」页设置</span></div>
 <p class="hint" id="rcount"></p>
 <div class="tw"><table><thead><tr>
-<th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th></tr></thead><tbody id="tb"></tbody></table></div>
+<th><input type="checkbox" id="selall" onchange="selAll(this.checked)" style="width:auto"></th><th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th></tr></thead><tbody id="tb"></tbody></table></div>
+</section>
+<section id="p-comments" hidden><h2>评论爬取</h2>
+<div class="grid2"><label>粘贴链接（每行一个，自动识别 Instagram / Facebook / TikTok）<textarea id="c_urls" rows="5" placeholder="https://www.instagram.com/reel/xxxx/&#10;https://www.tiktok.com/@user/video/123&#10;https://www.facebook.com/reel/123/"></textarea></label>
+<div><div class="row"><label>每条最多评论数<input id="c_max" type="number" value="100" min="1"></label><label>每条最多翻页数<input id="c_pages" type="number" value="5" min="1" max="100"></label></div>
+<label class="cb"><input type="checkbox" id="c_replies" checked>包含回复（IG 楼中楼预览、TikTok 回复接口、FB 返回中自带的回复）</label>
+<label>询盘匹配短语（可选，逗号分隔，叠加内置规则）<input id="c_phr" placeholder="价格, moq, catalog"></label>
+<div class="row"><button class="big" onclick="cStart()">▶ 爬取链接评论</button><button class="danger" onclick="api('/api/ctask/stop',{})">■ 停止</button></div></div></div>
+<div class="stats"><div><i>阶段</i><b id="c_stage">-</b></div><div><i>已完成内容</i><b id="c_done">0</b></div><div><i>评论数</i><b id="c_total">0</b></div></div>
+<div class="bar"><div id="c_bar"></div></div><pre id="c_log" style="height:140px"></pre>
+<h3>评论筛选 <span class="help" title="语法示例：&#10;price and moq　　（两个词都要有）&#10;price or &quot;how much&quot;　（任一）&#10;(price or 多少钱) and not scam&#10;price&amp;moq　price&amp;&amp;moq　price||moq　!scam&#10;价格并且起订量　价格或者多少钱　价格 不含 骗子&#10;lang:es and precio　　lang!=en&#10;user:abc　likes&gt;5　likes&gt;=10　is_reply:0　platform:tiktok　region:巴西&#10;空格分隔的多个词默认是“并且”；英文单词按词首匹配（price 能匹配 prices）；要搜 and/or 本身请加引号">❓语法</span></h3>
+<div class="row"><input id="c_expr" class="grow" placeholder='筛选表达式，例如 (price or "how much") and not scam ；lang:es and precio ；likes>5' oninput="cLoadSoon()"><span id="c_err" class="err"></span></div>
+<div class="row"><label>平台<select id="c_plat" onchange="cLoad()"><option value="">全部</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
+<label>排除词（逗号分隔）<input id="c_exw" oninput="cLoadSoon()"></label><label>排除用户（逗号分隔）<input id="c_exu" oninput="cLoadSoon()"></label>
+<label class="cb"><input type="checkbox" id="c_hauthor" checked onchange="cLoad()">隐藏作者本人评论</label><label class="cb"><input type="checkbox" id="c_hspam" onchange="cLoad()">隐藏广告/推广</label>
+<label class="cb"><input type="checkbox" id="c_onlym" onchange="cLoad()">只看询盘</label><label class="cb"><input type="checkbox" id="c_run" onchange="cLoad()">仅最近一次</label></div>
+<div class="row"><button class="ghost" onclick="cLoad()">刷新</button><button onclick="cExp('csv')">导出 CSV（筛选后）</button><button onclick="cExp('xlsx')">导出 Excel（筛选后）</button><button class="ghost" onclick="cExp('xlsx',1)">导出全部 Excel</button><button class="danger ghost" onclick="cClear()">清空评论库</button><span id="c_count" class="hint"></span></div>
+<div class="grid2"><div><h3>语言分布 <small class="hint">「可能地区」仅根据评论语言推断，不是真实定位</small></h3><div id="c_langs"></div></div><div></div></div>
+<div class="tw"><table><thead><tr><th>平台</th><th>帖子</th><th>账号</th><th>评论者</th><th>评论内容</th><th>语言</th><th>可能地区(按语言推断)</th><th>点赞</th><th>时间</th><th>回复</th><th>询盘</th></tr></thead><tbody id="c_tb"></tbody></table></div>
 </section></main><script src="/static/app.js"></script></body></html>
