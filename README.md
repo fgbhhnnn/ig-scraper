@@ -61,7 +61,7 @@ GitHub Actions（`.github/workflows/build.yml`）会在 `windows-latest` 上自�
 2. **msToken**：推荐填浏览器 F12 → Application → Session Storage → `msToken`；留空则用 Cookie 里的 msToken（会随响应自动更新）
 3. **device_id**：F12 → Application → Local Storage → `__tea_cache_tokens_1988` 的 `web_id`（可直接粘贴整段 JSON，自动提取）。必须与导出 Cookie 的浏览器一致，否则容易触发风控
 4. **User-Agent**：填导出 Cookie 那个浏览器的 UA（控制台 `navigator.userAgent`），留空用默认 Chrome UA
-5. **签名模块**：TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。算法来自 [cv-cat/TiktokApis](https://github.com/cv-cat/TiktokApis)（纯 Python 实现，感谢原作者）。该项目**没有声明开源许可证**，因此本仓库不包含它的代码；在 Cookie 页点击「下载签名模块」，软件会从 GitHub 下载其固定版本（commit `b3b2a44`）的 `signing/pure.py` 到 `igs_data/tiktok_sign/`，并校验 SHA-256。也可以手动选择本地文件。该文件只依赖 Python 标准库，在 exe 内运行，**不需要安装 Node 或 Python**
+5. **签名模块**：TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。算法来自 [cv-cat/TiktokApis](https://github.com/cv-cat/TiktokApis)（纯 Python 实现，感谢原作者 cv-cat）。**exe 已内置**该项目固定版本（commit `b3b2a44`）的 `signing/pure.py`，Cookie 页会显示绿色的「已内置 TikTok 签名模块」，一般无需任何操作。该文件**不提交到本仓库**（原项目未声明开源许可证，仅供内部使用）：打包时由 `tools/fetch_signer.py` 从 GitHub 下载并校验 SHA-256 `74326dad…c067d`，校验不通过则构建失败。本地打包请运行 `tools/build.sh`。如果以后需要更新，在 Cookie 页展开「更新签名模块（可选）」下载或选择新文件，它保存在 `igs_data/tiktok_sign/`，**优先于**内置版本使用；删除该文件即恢复内置版本。只依赖 Python 标准库，**不需要安装 Node 或 Python**
 6. 请求使用 [curl_cffi](https://github.com/lexiforest/curl_cffi)（MIT）模拟 Chrome 的 TLS 指纹，普通 requests 会被返回空响应
 7. 关键词搜索 `/api/search/general/full/`，只保留评论数 > 0 的视频；评论用 `/api/comment/list/` 游标翻页（20 条/页，「TikTok 评论最多翻页数」默认 2），找到提问就停止；作者本人评论不计入。话题标签按「#标签」搜索
 8. 字段：账号、链接、文案、播放、点赞、评论数、分享、发布日期、来源

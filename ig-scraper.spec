@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 用法: pyinstaller ig-scraper.spec   -> dist/Social-Scraper(.exe)
 from PyInstaller.utils.hooks import collect_data_files
-a = Analysis(['run.py'], pathex=['.'], datas=[('igscraper/static', 'igscraper/static')] + collect_data_files('py3langid'),
+import os
+_sign = [('build_vendor/tiktok_sign/pure.py', 'tiktok_sign')] if os.path.exists('build_vendor/tiktok_sign/pure.py') else []
+if not _sign: print('WARNING: TikTok signer not bundled (run tools/fetch_signer.py)')
+a = Analysis(['run.py'], pathex=['.'], datas=[('igscraper/static', 'igscraper/static')] + collect_data_files('py3langid') + _sign,
              hiddenimports=['openpyxl', 'secrets', 'typing', 'hashlib', 'curl_cffi', 'curl_cffi.requests', 'py3langid', 'numpy'], excludes=['tkinter', 'pandas', 'matplotlib'])
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='Social-Scraper', debug=False, strip=False, upx=False,

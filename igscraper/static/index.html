@@ -18,8 +18,9 @@
 <label>device_id（localStorage → __tea_cache_tokens_1988 的 web_id，可直接粘贴整段 JSON）<input id="tt_device_id"></label></div>
 <label>User-Agent（与导出 Cookie 的浏览器一致；留空用默认 Chrome）<input id="tt_user_agent" placeholder="浏览器地址栏输入 about:version 或控制台 navigator.userAgent"></label>
 <div class="row"><button onclick="saveCookie('tiktok')">保存并校验</button><button class="ghost" onclick="checkCookie('tiktok')">检测当前</button></div><p id="ttmsg"></p>
-<h3>TikTok 签名模块</h3><p class="hint">TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。签名算法来自开源项目 <a href="https://github.com/cv-cat/TiktokApis" target="_blank">cv-cat/TiktokApis</a>（未声明开源许可证，所以本软件不内置其代码）。点击下方按钮会从 GitHub 下载该项目固定版本的 signing/pure.py 到本地数据目录并校验，也可以选择本地文件。</p>
-<div class="row"><button class="ghost" onclick="ttSigner()">下载签名模块</button><input type="file" id="ttsignfile" accept=".py" style="width:auto" onchange="ttSigner(this.files[0])"><span id="ttsign"></span></div></div>
+<h3>TikTok 签名模块</h3><div class="row"><b id="ttsign"></b></div>
+<p class="hint">TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。签名算法来自 <a href="https://github.com/cv-cat/TiktokApis" target="_blank">cv-cat/TiktokApis</a>（感谢原作者 cv-cat），本软件已内置该项目固定版本（b3b2a44）的 signing/pure.py，并在打包时校验了 SHA-256，一般无需任何操作。如果以后 TikTok 改了签名、原项目有更新，可以用下面的按钮下载或选择新文件，本地文件会优先于内置版本使用。</p>
+<details><summary class="hint">更新签名模块（可选）</summary><div class="row"><button class="ghost" onclick="ttSigner()">更新签名模块（可选）</button><label class="hint">或选择本地 pure.py：<input type="file" id="ttsignfile" accept=".py" style="width:auto" onchange="ttSigner(this.files[0])"></label></div></details></div>
 <p class="hint">Facebook 校验会打开一次首页（约 1 个请求）。抓取过程中 Facebook 返回的新 Cookie 会自动更新保存。</p>
 </section>
 <section id="p-settings" hidden><h2>AI 设置（OpenAI 兼容接口，可选）</h2>
