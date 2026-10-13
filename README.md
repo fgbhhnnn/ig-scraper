@@ -2,7 +2,7 @@
 
 在 **Instagram / Facebook / TikTok** 上按**关键词 / 话题标签**搜索同行的**视频或帖子**，只保留**评论区里有人提问/询盘**的内容（评论只用来判断视频质量，每条视频最多看前 1~2 页评论，找到提问就停）。
 
-双击 `Social-Scraper.exe`（v1.0 叫 IG-Scraper.exe） → 自动在浏览器打开本地网页（`http://127.0.0.1:端口/`），不需要安装 Python。
+双击 `Social-Scraper.exe`（v1.0 叫 IG-Scraper.exe） → 自动在浏览器打开本地网页 **http://127.0.0.1:8765**（固定端口，可收藏），不需要安装 Python。
 
 > 全程只读：只发 GET 请求，不会点赞、关注、评论、私信。
 
@@ -22,6 +22,12 @@
 
 数据保存在 exe 同目录的 `igs_data/`：`config.json`（Cookie、AI Key，**不要发给别人**）和 `results.db`（SQLite，按「平台 + 内容 ID」去重；v1.0 的旧数据库首次启动时自动迁移，「跳过已有」跨任务生效）。用完点右上角「退出程序」关闭后台。
 
+## 端口
+
+- 固定使用 `8765`（页面右上角显示地址）。可在「AI 设置」页或 `igs_data/config.json` 的 `"port"` 修改，重启生效
+- 再次双击 exe 时，如果程序已在运行，会直接打开已有页面，不会重复启动
+- 如果端口被其他程序占用，会弹窗提示并退出（不会随机换端口），按提示关闭占用程序或修改端口即可
+
 ## 用 Cookie-Editor 获取 CK
 
 1. Chrome / Edge 安装扩展 **Cookie-Editor**
@@ -37,7 +43,7 @@
 
 ```bash
 pip install -r requirements.txt
-python run.py          # 环境变量 IGS_PORT=8765 指定端口, IGS_NO_BROWSER=1 不自动打开, IGS_DATA_DIR 指定数据目录
+python run.py          # 环境变量 IGS_PORT 临时覆盖端口, IGS_NO_BROWSER=1 不自动打开, IGS_DATA_DIR 指定数据目录
 ```
 
 ## 打包

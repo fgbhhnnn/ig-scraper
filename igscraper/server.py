@@ -20,7 +20,7 @@ def get_cfg():
     return jsonify({'ai_base': c['ai_base'], 'ai_model': c['ai_model'], 'ai_key_masked': mask(c['ai_key']),
                     'has_cookie': bool(c['cookie']), 'has_fb_cookie': bool(c['fb_cookie']), 'has_tt_cookie': bool(c['tt_cookie']),
                     'tt_ms_token_set': bool(c['tt_ms_token']), 'tt_device_id': c['tt_device_id'], 'tt_user_agent': c['tt_user_agent'],
-                    'tt_delay_min': c['tt_delay_min'], 'tt_delay_max': c['tt_delay_max'],
+                    'tt_delay_min': c['tt_delay_min'], 'tt_delay_max': c['tt_delay_max'], 'port': c['port'], 'running_port': PORT[0],
                     'fb_delay_min': c['fb_delay_min'], 'fb_delay_max': c['fb_delay_max'], 'delay_min': c['delay_min'], 'delay_max': c['delay_max'], 'data_dir': data_dir()})
 @app.post('/api/config')
 def set_cfg():
@@ -122,17 +122,50 @@ def export():
     for r in rs: w.writerow([fmtv(r, k) for k, _ in HEAD])
     return Response('\ufeff' + s.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={name}.csv'})
 
-def free_port(pref=8765):
-    for p in [pref] + [0]:
-        s = socket.socket()
-        try: s.bind(('127.0.0.1', p)); port = s.getsockname()[1]; s.close(); return port
-        except OSError: s.close()
+APP_ID = 'social-scraper'
+PORT = [8765]
+@app.get('/api/ping')
+def ping(): return jsonify(app=APP_ID, port=PORT[0])
+
+def _alert(msg):
+    print(msg, flush=True)
+    if os.name == 'nt':
+        try:
+            import ctypes; ctypes.windll.user32.MessageBoxW(0, msg, '社媒同行采集器', 0x10)
+        except Exception: pass
+
+def _port_busy(port):
+    s = socket.socket()
+    try: s.bind(('127.0.0.1', port)); return False
+    except OSError: return True
+    finally: s.close()
+
+def _is_ours(port):
+    import requests as _r
+    try: return _r.get(f'http://127.0.0.1:{port}/api/ping', timeout=3).json().get('app') == APP_ID
+    except Exception: return False
+
 def run(open_browser=True, port=None):
-    db.init(); port = port or free_port()
+    """Fixed port (config.json 'port', default 8765). Reuse a running instance; never fall back to random."""
+    cfg = config.load()
+    if not os.path.exists(config.path()): config.save({'port': cfg.get('port', 8765)})   # so users can find/edit it
+    try: port = int(port or cfg.get('port') or 8765)
+    except Exception: port = 8765
+    PORT[0] = port
     url = f'http://127.0.0.1:{port}/'
+    if _port_busy(port):
+        if _is_ours(port):
+            print('程序已在运行，直接打开:', url, flush=True)
+            if open_browser: webbrowser.open(url)
+            return 0
+        _alert(f'端口 {port} 已被其他程序占用，无法启动。\n\n解决方法：\n1. 关闭占用 {port} 端口的程序后重新打开；或\n'
+               f'2. 用记事本打开 {os.path.join(data_dir(), "config.json")}，把 "port" 改成其他端口（如 8766），保存后重新打开。')
+        return 2
+    db.init()
     print('社媒同行采集器已启动:', url, '数据目录:', data_dir(), flush=True)
     if open_browser: threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run('127.0.0.1', port, threaded=True, use_reloader=False)
+    return 0
 
 @app.get('/api/tt/signer')
 def tt_signer():

@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header><b>社媒同行采集器 (IG + FB + TikTok)</b><nav>
 <a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a></nav>
-<span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
+<a id="addr" class="pill" href="/" title="本程序地址，可收藏"></a><span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
 <main>
 <section id="p-cookie"><h2>Cookie（每个平台单独保存）</h2>
 <p class="hint">支持两种格式：① 浏览器请求头里的 Cookie 字符串（a=b; c=d）；② Cookie-Editor 插件「Export → JSON」导出的数组。</p>
@@ -27,6 +27,7 @@
 <label>API Key<input id="ai_key" type="password" placeholder="sk-…（留空=保持不变）"></label>
 <div class="row"><button class="ghost" onclick="fetchModels()">获取模型列表</button><span id="mmsg"></span></div>
 <label>模型<select id="ai_model"></select><input id="ai_model_manual" placeholder="或手动输入模型名"></label>
+<h3>本地端口</h3><div class="row"><label>端口（默认 8765，修改后重启程序生效）<input id="port" type="number" min="1024" max="65535"></label></div>
 <h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label><label>TikTok 最小<input id="tt_delay_min" type="number" step="0.5" min="0.5"></label><label>TikTok 最大<input id="tt_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
 <div class="row"><button onclick="saveSettings()">保存设置</button><span id="smsg"></span></div><p class="hint" id="ddir"></p>
 </section>

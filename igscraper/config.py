@@ -4,7 +4,8 @@ _lock = threading.Lock()
 DEFAULT = {'cookie': '', 'ai_base': 'https://api.openai.com/v1', 'ai_key': '', 'ai_model': '',
            'delay_min': 1.5, 'delay_max': 3.0,
            'fb_cookie': '', 'fb_delay_min': 1.5, 'fb_delay_max': 3.0, 'fb_docs': {},
-           'tt_cookie': '', 'tt_ms_token': '', 'tt_device_id': '', 'tt_user_agent': '', 'tt_delay_min': 1.5, 'tt_delay_max': 3.0}
+           'tt_cookie': '', 'tt_ms_token': '', 'tt_device_id': '', 'tt_user_agent': '', 'tt_delay_min': 1.5, 'tt_delay_max': 3.0,
+           'port': 8765}
 def path(): return os.path.join(data_dir(), 'config.json')
 def load():
     c = dict(DEFAULT)
