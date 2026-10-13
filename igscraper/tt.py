@@ -6,16 +6,26 @@ from . import ttsign
 DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
 RATE_CODES = {2484, 10201, 10202, 10203, 10204, 10205, 10206, 2483}
 
+def clean_device_id(v):
+    """Accept 7655..., '7655...', the __tea_cache_tokens_1988 JSON, the JSON wrapped in quotes / escaped, etc."""
+    s = (v or '').strip()
+    for _ in range(3):
+        s = s.strip().strip('\'"`').strip()
+        if s.startswith('{'):
+            try: j = json.loads(s); s = str(j.get('web_id') or j.get('user_unique_id') or ''); break
+            except Exception: pass
+        if s.startswith('"') or s.startswith("'"): continue
+        break
+    m = re.search(r'web_id\W{1,6}(\d{15,21})', s) or re.search(r'\d{15,21}', s)
+    return m.group(1) if m and m.groups() else (m.group(0) if m else '')
+
 def parse_session(raw_cookie, ms_token='', device_id='', user_agent=''):
     ck = parse_cookie(raw_cookie)
     C = {}
     for kv in ck.split(';'):
         if '=' in kv:
             k, v = kv.strip().split('=', 1); C[k] = v     # last msToken wins (newest)
-    did = (device_id or '').strip()
-    if did.startswith('{'):      # pasted __tea_cache_tokens_1988 JSON
-        try: did = str(json.loads(did).get('web_id') or '')
-        except Exception: did = ''
+    did = clean_device_id(device_id)
     return {'cookie': ck, 'ms_token': (ms_token or '').strip() or C.get('msToken', ''), 'device_id': did,
             'user_agent': (user_agent or '').strip() or DEFAULT_UA,
             'odin': urllib.parse.unquote(C.get('multi_sids', '')).split(':')[0], 'verify_fp': C.get('s_v_web_id', ''),
@@ -127,7 +137,7 @@ class TT:
     def diag(self):
         """Step-by-step check for the Cookie page."""
         out = [f'代理：{self.proxies["https"] if self.proxies else "未检测到系统代理（直连）"}',
-               f'device_id：{self.S["device_id"] or "缺少"}；msToken：{"有" if self.S["ms_token"] else "缺少"}（{len(self.S["ms_token"])} 位）；'
+               f'device_id(web_id)：{self.S["device_id"] or "缺少/无法识别"}；msToken：{"有" if self.S["ms_token"] else "缺少"}（{len(self.S["ms_token"])} 位）；'
                f'verifyFp(s_v_web_id)：{"有" if self.S["verify_fp"] else "缺少"}；地区参数：{self.S.get("region")}']
         try:
             uid, name = self.me(); out.append(f'✅ 登录：{name or uid}（odinId={self.S["odin"]}）')
@@ -138,6 +148,13 @@ class TT:
             for _ in self.search('handbag', 1): n += 1
             out.append(f'✅ 搜索：{n} 条' if n else '❌ 搜索：0 条')
         except Exception as e: out.append(f'❌ 搜索：{e}')
+        try:
+            vid, ref = '7614281465907383583', 'https://www.tiktok.com/@kshandbag768/video/7614281465907383583'
+            d = self.api('/api/comment/list/', dict(aweme_id=vid, count='20', cursor='0', current_region='SG', enter_from='tiktok_web',
+                         fromWeb='1', is_non_personalized='false'), ref, 'video', 'ja-JP')
+            k = len((d or {}).get('comments') or [])
+            out.append(f'✅ 评论接口：{k} 条' if k else '❌ 评论接口：没有返回评论')
+        except Exception as e: out.append(f'❌ 评论接口：{e}（多半是 device_id 不对：只填 web_id 那串数字）')
         return out
 
     @staticmethod

@@ -39,3 +39,11 @@ def test_chinese_aliases():
     for e in ['语言:en', '点赞>10', '回复:0', '平台:instagram']:
         assert not compile_filter(e)(c), e
     with pytest.raises(FilterError): compile_filter('语言:火星语')
+
+
+def test_device_id_clean():
+    from igscraper.tt import clean_device_id as c
+    j = '{"web_id":"7655564780489836045","user_unique_id":"7655564780489836045","timestamp":1791872250262,"_type_":"default"}'
+    for v in ['7655564780489836045', "'7655564780489836045'", j, "'" + j + "'", '"' + j.replace('"', '\\"') + '"', '  ' + j + '\n', '`' + j + '`']:
+        assert c(v) == '7655564780489836045', v
+    assert c('') == '' and c('abc') == ''
