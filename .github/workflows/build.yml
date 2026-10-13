@@ -16,6 +16,8 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: Fetch + verify TikTok signer (cv-cat/TiktokApis @ b3b2a44)
         run: python tools/fetch_signer.py
+      - name: Check bundled ffmpeg (imageio-ffmpeg Windows static build)
+        run: python -c "import imageio_ffmpeg,os;p=imageio_ffmpeg.get_ffmpeg_exe();print(p,os.path.getsize(p))"
       - run: pyinstaller --noconfirm ig-scraper.spec
       - uses: actions/upload-artifact@v4
         with: { name: Social-Scraper-windows, path: dist/Social-Scraper.exe }

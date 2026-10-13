@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>社媒同行采集器 (IG + FB + TikTok)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header><b>社媒同行采集器 (IG + FB + TikTok)</b><nav>
-<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a><a data-p="comments">⑥ 评论爬取</a></nav>
+<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a><a data-p="comments">⑥ 评论爬取</a><a data-p="ai">⑦ AI 分析</a></nav>
 <a id="addr" class="pill" href="/" title="本程序地址，可收藏"></a><span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
 <main>
 <section id="p-cookie"><h2>Cookie（每个平台单独保存）</h2>
@@ -29,6 +29,15 @@
 <label>API Key<input id="ai_key" type="password" placeholder="sk-…（留空=保持不变）"></label>
 <div class="row"><button class="ghost" onclick="fetchModels()">获取模型列表</button><span id="mmsg"></span></div>
 <label>模型<select id="ai_model"></select><input id="ai_model_manual" placeholder="或手动输入模型名"></label>
+<div class="row"><button class="ghost" onclick="visionTest()">🖼 测试识图</button><span id="vmsg" class="hint">发一张红色圆形测试图，看模型能不能认出来</span></div>
+<h3>AI 视频分析</h3><div class="row">
+<label>识图模式<select id="ai_vision"><option value="">自动（不支持识图时自动改为纯文字）</option><option value="1">强制识图</option><option value="0">关闭识图（只看文案和评论）</option></select></label>
+<label>3 秒后每秒截图张数<select id="ai_fps"><option value="1">1 张/秒</option><option value="2">2 张/秒</option></select></label>
+<label>每次请求最多图片数（留空=不限）<input id="ai_max_images" type="number" min="1" placeholder="不限"></label>
+<label>语音转写模型（可选）<input id="ai_stt_model" placeholder="如 whisper-1，留空=不转写"></label>
+<label>评论最多翻页<input id="ai_comment_pages" type="number" min="1" max="50"></label>
+<label>发给 AI 的评论条数<input id="ai_comments_send" type="number" min="0" max="1000"></label></div>
+<p class="hint">开头 3 秒每秒截 4 张（钩子最关键），之后按上面设置每秒 1~2 张，另外在换镜头处自动补截一张；图片缩到 512 像素宽再发送。默认所有截图一次全部发给 AI；如果接口拒绝（图片太多/请求太大），会自动拆成几批依次发送再汇总，不会丢帧。也可以手动设置每次最多图片数。视频和截图只临时存放，分析结束（包括出错）后自动删除。</p>
 <h3>本地端口</h3><div class="row"><label>端口（默认 8765，修改后重启程序生效）<input id="port" type="number" min="1024" max="65535"></label></div>
 <h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label><label>TikTok 最小<input id="tt_delay_min" type="number" step="0.5" min="0.5"></label><label>TikTok 最大<input id="tt_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
 <div class="row"><button onclick="saveSettings()">保存设置</button><span id="smsg"></span></div><p class="hint" id="ddir"></p>
@@ -83,7 +92,7 @@ MOQ
 <div class="row"><button onclick="crawlSel()">💬 爬取选中内容的评论</button><button class="ghost" onclick="crawlFiltered()">💬 爬取当前筛选的全部内容的评论</button><span class="hint">爬取参数在「⑥ 评论爬取」页设置</span></div>
 <p class="hint" id="rcount"></p>
 <div class="tw"><table><thead><tr>
-<th><input type="checkbox" id="selall" onchange="selAll(this.checked)" style="width:auto"></th><th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th></tr></thead><tbody id="tb"></tbody></table></div>
+<th><input type="checkbox" id="selall" onchange="selAll(this.checked)" style="width:auto"></th><th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th><th>AI</th></tr></thead><tbody id="tb"></tbody></table></div>
 </section>
 <section id="p-comments" hidden><h2>评论爬取</h2>
 <div class="grid2"><label>粘贴链接（每行一个，自动识别 Instagram / Facebook / TikTok）<textarea id="c_urls" rows="5" placeholder="https://www.instagram.com/reel/xxxx/&#10;https://www.tiktok.com/@user/video/123&#10;https://www.facebook.com/reel/123/"></textarea></label>
@@ -116,4 +125,17 @@ MOQ
 <div class="row"><button class="ghost" onclick="cLoad()">刷新</button><button onclick="cExp('csv')">导出 CSV（筛选后）</button><button onclick="cExp('xlsx')">导出 Excel（筛选后）</button><button class="ghost" onclick="cExp('xlsx',1)">导出全部 Excel</button><button class="danger ghost" onclick="cClear()">清空评论库</button><span id="c_count" class="hint"></span></div>
 <div class="grid2"><div><h3>语言分布 <small class="hint">「可能地区」仅根据评论语言推断，不是真实定位</small></h3><div id="c_langs"></div></div><div></div></div>
 <div class="tw"><table><thead><tr><th>平台</th><th>帖子</th><th>账号</th><th>评论者</th><th>评论内容</th><th>语言</th><th>可能地区(按语言推断)</th><th>点赞</th><th>时间</th><th>回复</th><th>询盘</th></tr></thead><tbody id="c_tb"></tbody></table></div>
+</section>
+<section id="p-ai" hidden><h2>AI 视频分析 · 一键复刻</h2>
+<p class="hint">在「⑤ 结果」里点某条视频的「🤖 AI 分析」，或在下面粘贴 TikTok / Instagram / Facebook 视频链接。程序会读取文案、标签、数据和评论（提问类优先），下载视频截图后交给 AI 拆解成「视频画像」，再根据你的产品生成复刻脚本。需先在「② AI 设置」配好接口和模型。</p>
+<div class="row"><input id="a_url" class="grow" placeholder="粘贴视频链接，例如 https://www.tiktok.com/@xxx/video/123…"><button onclick="aStart()">🤖 开始分析</button><button class="danger ghost" onclick="api('/api/analyze/stop',{})">停止</button></div>
+<div class="stats"><div><i>阶段</i><b id="a_stage">-</b></div></div><div class="bar"><div id="a_bar"></div></div>
+<pre id="a_log" style="height:160px"></pre>
+<div class="grid2" style="grid-template-columns:320px 1fr"><div><h3>历史分析 <button class="ghost" onclick="aList()">刷新</button></h3><div id="a_list"></div></div>
+<div id="a_view" hidden><h3 id="a_title"></h3><p class="hint" id="a_meta"></p>
+<div class="row"><button class="ghost" onclick="aCopy('profile')">复制画像</button><button class="ghost" onclick="aCopy('all')">复制全部 Markdown</button><button onclick="location.href='/api/analyses/'+AID+'/md'">导出 Markdown</button><button class="danger ghost" onclick="aDel()">删除</button></div>
+<h3>📊 视频画像</h3><div id="a_profile" class="md"></div>
+<h3>🎬 一键复刻</h3><label>我的产品 / 需求信息（产品名、材质、卖点、价格/MOQ、目标市场、想发的平台和语言…）<textarea id="a_product" rows="4" placeholder="例：硅胶折叠水杯，食品级硅胶，可定制logo，MOQ 500，主打欧美户外人群，发 TikTok 英文"></textarea></label>
+<div class="row"><button onclick="aRep()">✨ 生成复刻脚本</button><span id="a_rmsg"></span><button class="ghost" onclick="aCopy('replica')">复制复刻脚本</button></div>
+<div id="a_replica" class="md"></div></div></div>
 </section></main><script src="/static/app.js"></script></body></html>

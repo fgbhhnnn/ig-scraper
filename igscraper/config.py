@@ -5,7 +5,8 @@ DEFAULT = {'cookie': '', 'ai_base': 'https://api.openai.com/v1', 'ai_key': '', '
            'delay_min': 1.5, 'delay_max': 3.0,
            'fb_cookie': '', 'fb_delay_min': 1.5, 'fb_delay_max': 3.0, 'fb_docs': {},
            'tt_cookie': '', 'tt_ms_token': '', 'tt_device_id': '', 'tt_user_agent': '', 'tt_delay_min': 1.5, 'tt_delay_max': 3.0,
-           'port': 8765}
+           'port': 8765,
+           'ai_fps': 1, 'ai_max_images': '', 'ai_stt_model': '', 'ai_vision': '', 'ai_comment_pages': 5, 'ai_comments_send': 120}
 def path(): return os.path.join(data_dir(), 'config.json')
 def load():
     c = dict(DEFAULT)

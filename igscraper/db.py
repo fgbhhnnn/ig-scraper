@@ -9,7 +9,7 @@ def conn():
     return c
 def _cols(c, t): return [r[1] for r in c.execute(f'PRAGMA table_info({t})')]
 def init():
-    _init_main(); init_comments()
+    _init_main(); init_comments(); init_analyses()
 def _init_main():
     with _lock, conn() as c:
         # v1.0 schema had no platform column -> migrate (all old rows are Instagram videos)
@@ -78,3 +78,24 @@ def get_videos(keys):
     return out
 def clear_comments():
     with _lock, conn() as c: c.execute('DELETE FROM comments')
+
+ACOLS = ['platform', 'url', 'account', 'caption', 'meta', 'profile', 'vision', 'frames', 'transcript', 'note', 'created_at']
+def init_analyses():
+    with _lock, conn() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS analyses(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, url TEXT, account TEXT, caption TEXT,
+          meta TEXT, profile TEXT, vision INTEGER, frames INTEGER, transcript TEXT, note TEXT, created_at TEXT, product TEXT, replica TEXT)''')
+def save_analysis(a):
+    init_analyses()
+    with _lock, conn() as c:
+        return c.execute(f"INSERT INTO analyses({','.join(ACOLS)}) VALUES({','.join('?'*len(ACOLS))})", [a.get(k) for k in ACOLS]).lastrowid
+def update_analysis(aid, **kw):
+    with _lock, conn() as c: c.execute(f"UPDATE analyses SET {','.join(k + '=?' for k in kw)} WHERE id=?", list(kw.values()) + [aid])
+def get_analysis(aid):
+    init_analyses()
+    with conn() as c:
+        r = c.execute('SELECT * FROM analyses WHERE id=?', (aid,)).fetchone(); return dict(r) if r else None
+def list_analyses():
+    init_analyses()
+    with conn() as c: return [dict(r) for r in c.execute('SELECT id,platform,url,account,caption,vision,frames,created_at,replica IS NOT NULL AS has_replica FROM analyses ORDER BY id DESC')]
+def delete_analysis(aid):
+    with _lock, conn() as c: c.execute('DELETE FROM analyses WHERE id=?', (aid,))

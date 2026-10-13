@@ -23,7 +23,8 @@ def get_cfg():
                     'has_cookie': bool(c['cookie']), 'has_fb_cookie': bool(c['fb_cookie']), 'has_tt_cookie': bool(c['tt_cookie']),
                     'tt_ms_token_set': bool(c['tt_ms_token']), 'tt_device_id': c['tt_device_id'], 'tt_user_agent': c['tt_user_agent'],
                     'tt_delay_min': c['tt_delay_min'], 'tt_delay_max': c['tt_delay_max'], 'port': c['port'], 'running_port': PORT[0],
-                    'fb_delay_min': c['fb_delay_min'], 'fb_delay_max': c['fb_delay_max'], 'delay_min': c['delay_min'], 'delay_max': c['delay_max'], 'data_dir': data_dir()})
+                    'fb_delay_min': c['fb_delay_min'], 'fb_delay_max': c['fb_delay_max'], 'delay_min': c['delay_min'], 'delay_max': c['delay_max'], 'data_dir': data_dir(),
+                    **{k: c[k] for k in ('ai_fps', 'ai_max_images', 'ai_stt_model', 'ai_vision', 'ai_comment_pages', 'ai_comments_send')}})
 @app.post('/api/config')
 def set_cfg():
     d = request.json or {}
@@ -260,6 +261,50 @@ def cexport():
     return Response('\ufeff' + s.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={name}.csv'})
 @app.post('/api/comments/clear')
 def cclear(): db.clear_comments(); return jsonify(ok=True)
+
+from . import vai
+ATASK = vai.AnalyzeTask()
+@app.post('/api/ai/vision_test')
+def vision_test():
+    b, k, m = ai_args(request.json or {})
+    if not (b and k and m): return jsonify(ok=False, msg='请先填写接口地址、Key 并选择模型')
+    ok, msg = vai.vision_test(b, k, m)
+    return jsonify(ok=ok, msg=msg)
+@app.get('/api/ffmpeg')
+def ffmpeg_info():
+    from . import frames
+    try:
+        p = frames.ffmpeg_path(); v = frames._run(['-version'], 30).stdout.decode('utf-8', 'ignore').split('\n')[0]
+        return jsonify(ok=True, path=p, version=v)
+    except Exception as e: return jsonify(ok=False, error=str(e))
+@app.post('/api/analyze/start')
+def analyze_start():
+    d = request.json or {}
+    if ATASK.thread and ATASK.thread.is_alive(): return jsonify(ok=False, error='已有分析在进行，请等它完成或先停止'), 400
+    ATASK.state['result_id'] = None
+    try: return jsonify(ok=True, run_id=ATASK.start(config.load(), dict(d, max_videos=6)))
+    except Exception as e: return jsonify(ok=False, error=str(e)), 400
+@app.post('/api/analyze/stop')
+def analyze_stop(): ATASK.stop(); return jsonify(ok=True)
+@app.get('/api/analyze/status')
+def analyze_status(): return jsonify(ATASK.snapshot(int(request.args.get('since', 0))))
+@app.get('/api/analyses')
+def analyses(): return jsonify(db.list_analyses())
+@app.get('/api/analyses/<int:aid>')
+def analysis(aid): return jsonify(db.get_analysis(aid) or {})
+@app.post('/api/analyses/<int:aid>/delete')
+def analysis_del(aid): db.delete_analysis(aid); return jsonify(ok=True)
+@app.post('/api/analyses/<int:aid>/replicate')
+def analysis_rep(aid):
+    try: return jsonify(ok=True, replica=vai.replicate(aid, (request.json or {}).get('product', '')))
+    except Exception as e: return jsonify(ok=False, error=f'生成失败: {e}')
+@app.get('/api/analyses/<int:aid>/md')
+def analysis_md(aid):
+    a = db.get_analysis(aid)
+    if not a: return Response('not found', status=404)
+    md = vai.to_markdown(a)
+    if request.args.get('raw'): return Response(md, mimetype='text/plain; charset=utf-8')
+    return Response(md.encode('utf-8'), mimetype='text/markdown; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=ai_analysis_{aid}.md'})
 
 @app.post('/api/quit')
 def quit_app():
