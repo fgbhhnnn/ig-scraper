@@ -2,7 +2,7 @@ import sqlite3, os, threading
 from .paths import data_dir
 _lock = threading.Lock()
 COLS = ['platform','shortcode','content_type','account','url','caption','plays','likes','comment_count','question_count',
-        'sample_questions','publish_date','source','media_id','scanned_comments','crawled_at','run_id','shares']
+        'sample_questions','publish_date','source','media_id','scanned_comments','crawled_at','run_id','shares','cf_count','cf_samples']
 def conn():
     c = sqlite3.connect(os.path.join(data_dir(), 'results.db'), check_same_thread=False)
     c.row_factory = sqlite3.Row
@@ -24,6 +24,8 @@ def _init_main():
         c.execute('''CREATE TABLE IF NOT EXISTS seen(platform TEXT NOT NULL DEFAULT 'instagram', shortcode TEXT NOT NULL,
           question_count INTEGER, seen_at TEXT, PRIMARY KEY(platform, shortcode))''')
         if 'shares' not in _cols(c, 'videos'): c.execute('ALTER TABLE videos ADD COLUMN shares INTEGER')
+        if 'cf_count' not in _cols(c, 'videos'): c.execute('ALTER TABLE videos ADD COLUMN cf_count INTEGER')
+        if 'cf_samples' not in _cols(c, 'videos'): c.execute('ALTER TABLE videos ADD COLUMN cf_samples TEXT')
         if _cols(c, 'videos_v1'):
             old = [k for k in COLS if k in _cols(c, 'videos_v1')]
             c.execute(f"INSERT OR IGNORE INTO videos(platform,content_type,{','.join(old)}) SELECT 'instagram','video',{','.join(old)} FROM videos_v1")

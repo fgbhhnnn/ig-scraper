@@ -107,3 +107,12 @@ pre.has-copy{position:relative;padding-right:64px}.pre-copy{position:absolute;to
 .cv-n{position:absolute;top:-10px;left:12px;background:linear-gradient(135deg,#db2777,#7c3aed);color:#fff;font-weight:700;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px}.cv-t{font-weight:700;margin:4px 0 6px;color:#111827}.cover .md2{font-size:13.5px}
 .tips{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin:8px 0}.tip{border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;background:#fff}.tip-h{display:flex;gap:8px;align-items:center;margin-bottom:4px}.tip-h span{font-size:18px}.tip .md2{font-size:13.5px}
 @media (max-width:900px){.rf-grid{grid-template-columns:1fr}.rf-head{flex-direction:column}.big-primary{width:100%}.tips,.covers{grid-template-columns:1fr}}
+
+.cfbox{border:1px solid #e0e7ff;background:#f8faff;border-radius:10px;padding:10px 14px;margin:10px 0}.cfbox textarea{width:100%}
+.cfd summary{cursor:pointer;color:#4338ca;white-space:nowrap}.cfd div{text-align:left;min-width:260px;max-width:380px;font-size:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:4px 8px;margin-top:4px}.cfd p{margin:3px 0}
+
+/* v1.5.0 一键复刻布局修复：没有目录时内容占满整行；表单头部不被压缩 */
+.pane.notoc{grid-template-columns:minmax(0,1fr)}.pane.notoc>.toc{display:none}.pane>.cards{grid-column:-2/-1}
+.rep-form{min-width:0;width:100%}.rf-head>div:first-child{flex:1;min-width:0}#rf_free{display:block;width:100%}#rf_free[hidden]{display:none}#rf_free textarea{display:block;min-height:150px;resize:vertical}
+.cfd div{word-break:break-word;white-space:normal}
+.rf-head{flex-direction:column;align-items:stretch;gap:10px}.rf-head .seg{align-self:flex-start}

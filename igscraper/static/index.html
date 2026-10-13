@@ -76,6 +76,23 @@ MOQ
 <label>发布日期从<input id="date_from" type="date"></label><label>到<input id="date_to" type="date"></label></div>
 <div class="row"><label class="grow">文案/账号必须包含任一词（逗号分隔）<input id="must_words" placeholder="bag, handbag, leather, purse, tote, factory"></label>
 <label class="grow">排除词（逗号分隔）<input id="exclude_words" placeholder="sewing, machine, tour, diy, crochet"></label></div>
+<div class="cfbox"><label class="grow">按评论内容筛选视频（可选，留空=不启用，沿用上面的提问规则）<textarea id="cf_expr" rows="2" placeholder='例：price or moq or "how much" ／ (价格 或者 多少钱) 不含 scam ／ 语言:西班牙语 and 点赞>=2'></textarea></label>
+<div class="row"><label>最少匹配评论数<input id="cf_min" type="number" value="1" min="1"></label><label>每条视频最多读评论页数<input id="cf_pages" type="number" value="5" min="1" max="100"></label><span id="cf_err" class="err"></span></div>
+<p class="hint">填写后：搜索到的每条候选视频都会读取评论（IG 约 50 条/页、TikTok 约 20 条/页、Facebook 约 10 条/页，默认最多 5 页），排除作者本人评论后，命中条数 ≥「最少匹配评论数」才保存；「目标条数」按保留下来的视频计算。不命中的视频会记入「已抓过」，勾选「跳过本地数据库已有的内容」时下次不再重复检查。</p>
+<details id="cf_help" class="helpbox"><summary>📖 评论筛选怎么写？（语法与「⑥ 评论爬取」一致，点击展开/收起）</summary>
+<div class="grid2"><div><table class="ht"><tr><th>想要</th><th>写法</th></tr>
+<tr><td>同时包含两个词</td><td><code>price and moq</code>　或 <code>price 并且 moq</code>　或直接空格 <code>price moq</code></td></tr>
+<tr><td>包含任意一个</td><td><code>price or "how much"</code>　或 <code>价格 或者 多少钱</code></td></tr>
+<tr><td>排除某个词</td><td><code>not scam</code>　或 <code>不含 scam</code>、<code>-scam</code></td></tr>
+<tr><td>词组（含空格）</td><td>用引号括起来：<code>"how much"</code></td></tr>
+<tr><td>按语言</td><td><code>lang:es</code>　<code>语言:西班牙语</code>　不要英语：<code>lang!=en</code> 或 <code>语言!=英语</code></td></tr>
+<tr><td>点赞数</td><td><code>likes>5</code>　<code>点赞>=10</code></td></tr>
+<tr><td>只看回复 / 只看一级评论</td><td><code>is_reply:1</code>（<code>回复:1</code>）／ <code>回复:0</code></td></tr>
+<tr><td>按评论者</td><td><code>user:abc</code>（<code>用户:abc</code>，包含即可）</td></tr>
+<tr><td>按平台 / 地区</td><td><code>平台:tiktok</code>　<code>地区:巴西</code></td></tr>
+<tr><td>括号组合</td><td><code>(price or 多少钱) and 语言:es and not scam</code></td></tr></table>
+<p class="hint">不区分大小写；英文词按词首匹配（price 能匹配 prices）；中文按包含匹配。符号写法也可以：<code>&&</code> <code>||</code> <code>!</code>。语法写错会在右侧提示。「可能地区」仅由语言推断，不是真实位置。</p></div>
+<div><table class="ht"><tr><th>语言代码</th><th>中文名</th></tr><tr><td><code>en</code></td><td>英语</td></tr><tr><td><code>es</code></td><td>西班牙语</td></tr><tr><td><code>pt</code></td><td>葡萄牙语</td></tr><tr><td><code>fr</code></td><td>法语</td></tr><tr><td><code>de</code></td><td>德语</td></tr><tr><td><code>it</code></td><td>意大利语</td></tr><tr><td><code>ru</code></td><td>俄语</td></tr><tr><td><code>ar</code></td><td>阿拉伯语</td></tr><tr><td><code>tr</code></td><td>土耳其语</td></tr><tr><td><code>id</code></td><td>印尼语</td></tr><tr><td><code>ms</code></td><td>马来语</td></tr><tr><td><code>vi</code></td><td>越南语</td></tr><tr><td><code>th</code></td><td>泰语</td></tr><tr><td><code>hi</code></td><td>印地语</td></tr><tr><td><code>tl</code></td><td>菲律宾语</td></tr><tr><td><code>zh</code></td><td>中文</td></tr><tr><td><code>ja</code></td><td>日语</td></tr><tr><td><code>ko</code></td><td>韩语</td></tr><tr><td><code>pl</code></td><td>波兰语</td></tr><tr><td><code>nl</code></td><td>荷兰语</td></tr><tr><td><code>unknown</code></td><td>未知（太短/表情）</td></tr></table></div></div></details></div>
 <div class="row"><button class="big" onclick="startTask()">▶ 开始抓取</button><span id="tmsg"></span></div>
 </section>
 <section id="p-run" hidden><h2>运行进度</h2>
@@ -92,7 +109,7 @@ MOQ
 <div class="row"><button onclick="crawlSel()">💬 爬取选中内容的评论</button><button class="ghost" onclick="crawlFiltered()">💬 爬取当前筛选的全部内容的评论</button><span class="hint">爬取参数在「⑥ 评论爬取」页设置</span></div>
 <p class="hint" id="rcount"></p>
 <div class="tw"><table><thead><tr>
-<th><input type="checkbox" id="selall" onchange="selAll(this.checked)" style="width:auto"></th><th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th><th>AI</th></tr></thead><tbody id="tb"></tbody></table></div>
+<th><input type="checkbox" id="selall" onchange="selAll(this.checked)" style="width:auto"></th><th data-k="platform">平台</th><th data-k="content_type">类型</th><th data-k="account">账号</th><th>链接</th><th data-k="caption">文案</th><th data-k="plays">播放/观看</th><th data-k="likes">点赞/心情</th><th data-k="comment_count">评论数</th><th data-k="shares">分享</th><th data-k="question_count">提问数</th><th>提问示例</th><th data-k="cf_count">评论命中</th><th data-k="publish_date">发布日期</th><th data-k="source">来源</th><th>AI</th></tr></thead><tbody id="tb"></tbody></table></div>
 </section>
 <section id="p-comments" hidden><h2>评论爬取</h2>
 <div class="grid2"><label>粘贴链接（每行一个，自动识别 Instagram / Facebook / TikTok）<textarea id="c_urls" rows="5" placeholder="https://www.instagram.com/reel/xxxx/&#10;https://www.tiktok.com/@user/video/123&#10;https://www.facebook.com/reel/123/"></textarea></label>

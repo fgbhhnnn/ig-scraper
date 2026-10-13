@@ -47,6 +47,13 @@ class Task:
         d_from, d_to = P.get('date_from') or '', P.get('date_to') or ''
         must = [w.lower() for w in P.get('must_words') or [] if w.strip()]
         excl = [w.lower() for w in P.get('exclude_words') or [] if w.strip()]
+        cf_expr = (P.get('cf_expr') or '').strip(); cf = None
+        if cf_expr:
+            from .cfilter import compile_filter, FilterError
+            from .langdet import detect
+            try: cf = compile_filter(cf_expr)
+            except FilterError as e: raise RuntimeError(f'「按评论内容筛选视频」语法错误：{e}')
+        cf_min = max(1, int(P.get('cf_min') or 1)); cf_pages = max(1, min(int(P.get('cf_pages') or 5), 100))
         seen = db.seen_codes(plat) if P.get('skip_existing', True) else set()
         mode = P.get('mode', 'keyword')
         srcs = []
@@ -68,6 +75,8 @@ class Task:
                 own = lambda c: c['user'] == v['account'] or (c.get('uid') and c['uid'] == v.get('owner_id'))
                 cs = cl.comments(v, tt_pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) and not own(c) for c in L))
                 return [c for c in cs if not own(c)]
+            def comments_cf(v):
+                return cl.comments_full(v, cf_pages, 10**9, False)
             def done():
                 from . import config as _c
                 if cl.S['ms_token'] != cfg.get('tt_ms_token'): _c.save({'tt_ms_token': cl.S['ms_token']})
@@ -98,6 +107,16 @@ class Task:
                 for c in cs:
                     if (c['user'], c['text']) not in seen_ and not own(c): seen_.add((c['user'], c['text'])); out.append(c)
                 return out
+            def comments_cf(v):
+                cs, ref = [], v['url']
+                if '/reel/' not in v['url']:
+                    cs, plays, _cur, ref = cl.post_page(v)
+                    if plays is not None and fetch_views: v['plays'] = plays; v['plays_known'] = True
+                if v.get('media_id'): cs += cl.gql_comments(v, cf_pages, ref)
+                seen_ = set(); out = []
+                for c in cs:
+                    if (c['user'], c['text']) not in seen_: seen_.add((c['user'], c['text'])); out.append(c)
+                return out
             def done(): config.save({'fb_docs': cl.export_docs()})
         else:
             if not cfg.get('cookie'): raise Blocked('请先在「Cookie」页面填写 Instagram Cookie')
@@ -106,11 +125,14 @@ class Task:
                 return cl.keyword_media(s, int(P.get('search_pages') or 4)) if kind == 'kw' else cl.tag_media(s)
             def comments(v):
                 return cl.comments(v['shortcode'], pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) for c in L))
+            def comments_cf(v):
+                return cl.comments_full(v['shortcode'], cf_pages, cf_pages * 50, False)[0]
             def done(): pass
         PN = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}[plat]
         CN = {'video': '视频', 'post': '帖子', 'both': '视频+帖子'}[ctype]
         local = set()
-        self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条有提问的内容')
+        if cf: self.log(f'按评论内容筛选：{cf_expr}（每条视频最多读 {cf_pages} 页评论，至少 {cf_min} 条命中才保留）')
+        self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条{"评论命中筛选" if cf else "有提问"}的内容')
         try:
             for kind, s in srcs:
                 if self._stop or self.state['matched'] >= target: break
@@ -131,22 +153,44 @@ class Task:
                         continue
                     with self.lock: self.state['candidates'] += 1
                     self.set(stage='检查评论区', current=v['url'])
-                    cs = comments(v)
+                    if cf:
+                        try: cs = comments_cf(v)
+                        except Blocked: raise
+                        except Exception as e: self.log(f'❌ 读评论失败 {v["url"]}：{e}'); continue
+                    else: cs = comments(v)
                     if self._stop and not cs: break
                     q = [c for c in cs if m.is_q(c['text'], c['user'], v['account'])]
+                    hits = cf_hits(cf, cs, v, plat) if cf else []
                     with self.lock: self.state['scanned'] += 1
                     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     db.mark_seen(plat, code, len(q), now)
                     if plat == 'facebook' and min_p and v.get('plays_known') and (v['plays'] or 0) < min_p:
                         self.log(f'— 播放量不足 {v["plays"]} {v["url"]}'); continue
-                    if not q:
+                    if cf:
+                        if len(hits) < cf_min:
+                            self.log(f'— 评论命中 {len(hits)}/{cf_min} 不足 {v["account"]} {v["url"]}（看了 {len(cs)} 条）· 已检查 {self.state["scanned"]} / 保留 {self.state["matched"]}'); continue
+                        v.update(cf_count=len(hits), cf_samples=' || '.join(f"@{c['user']}: {c['text'][:150]}" for c in hits[:5]))
+                    elif not q:
                         self.log(f'— 无提问 {v["account"]} {v["url"]} (看了 {len(cs)} 条)'); continue
                     v.update(question_count=len(q), scanned_comments=len(cs), crawled_at=now, run_id=rid,
                              sample_questions=' || '.join(f"@{c['user']}: {c['text'][:150]}" for c in q[:3]),
                              caption=(v['caption'] or '')[:300].replace('\n', ' '))
                     db.upsert(v)
                     with self.lock: self.state['matched'] += 1
-                    self.log(f'✅ [{PN}/{"视频" if v["content_type"]=="video" else "帖子"}] {v["account"]} 提问 {len(q)} 条 · {v["url"]}')
+                    self.log(f'✅ [{PN}/{"视频" if v["content_type"]=="video" else "帖子"}] {v["account"]} ' + (f'评论命中 {len(hits)} 条（共读 {len(cs)} 条）' if cf else f'提问 {len(q)} 条') + f' · {v["url"]}' + (f' · 已检查 {self.state["scanned"]} / 保留 {self.state["matched"]}' if cf else ''))
         finally:
             done()
-        self.log(f'结束：匹配 {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条')
+        self.log(f'结束：{"保留" if cf else "匹配"} {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条')
+
+def cf_hits(cf, cs, v, plat):
+    """按评论筛选表达式统计命中评论（排除作者本人）。行格式与「评论爬取」页一致。"""
+    from .langdet import detect
+    out = []
+    for c in cs:
+        if not c.get('text'): continue
+        if c.get('user') == v.get('account') or (c.get('uid') and c.get('uid') == v.get('owner_id')): continue
+        code, lname, region = detect(c['text'])
+        row = {'text': c['text'], 'lang': code, 'lang_name': lname, 'region': region, 'commenter': c.get('user', ''),
+               'likes': int(c.get('likes') or 0), 'is_reply': int(c.get('is_reply') or 0), 'platform': plat}
+        if cf(row): out.append(c)
+    return out

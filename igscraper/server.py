@@ -108,7 +108,7 @@ def results(): return jsonify(db.rows(request.args.get('q', ''), request.args.ge
 def clear(): db.clear(); return jsonify(ok=True)
 PLAT = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}; CT = {'video': '视频', 'post': '帖子'}
 HEAD = [('platform','平台'),('content_type','类型'),('account','账号'),('url','链接'),('caption','文案'),('plays','播放/观看'),('likes','点赞/心情'),('comment_count','评论数'),('shares','分享'),
-        ('question_count','提问数'),('sample_questions','提问示例'),('publish_date','发布日期'),('source','来源'),('crawled_at','抓取时间')]
+        ('question_count','提问数'),('sample_questions','提问示例'),('cf_count','评论筛选命中数'),('cf_samples','命中评论示例'),('publish_date','发布日期'),('source','来源'),('crawled_at','抓取时间')]
 def fmtv(r, k):
     v = r.get(k)
     return PLAT.get(v, v) if k == 'platform' else CT.get(v, v) if k == 'content_type' else v
@@ -120,7 +120,7 @@ def export():
         from openpyxl import Workbook
         wb = Workbook(); ws = wb.active; ws.append([h for _, h in HEAD])
         for r in rs: ws.append([fmtv(r, k) for k, _ in HEAD])
-        for col, w in zip('ABCDEFGHIJKLMN', [10, 6, 18, 45, 50, 10, 10, 10, 8, 10, 60, 12, 24, 20]): ws.column_dimensions[col].width = w
+        for col, w in zip('ABCDEFGHIJKLMNOP', [10, 6, 18, 45, 50, 10, 10, 10, 8, 10, 60, 10, 60, 12, 24, 20]): ws.column_dimensions[col].width = w
         bio = io.BytesIO(); wb.save(bio); bio.seek(0)
         return send_file(bio, as_attachment=True, download_name=name + '.xlsx')
     s = io.StringIO(); w = csv.writer(s); w.writerow([h for _, h in HEAD])
@@ -314,6 +314,12 @@ def analysis_md(aid):
     md = vai.to_markdown(a)
     if request.args.get('raw'): return Response(md, mimetype='text/plain; charset=utf-8')
     return Response(md.encode('utf-8'), mimetype='text/markdown; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=ai_analysis_{aid}.md'})
+
+@app.get('/api/cfilter/check')
+def cfilter_check():
+    from .cfilter import compile_filter, FilterError
+    try: compile_filter(request.args.get('expr', '')); return jsonify(ok=True)
+    except FilterError as e: return jsonify(ok=False, error=str(e))
 
 @app.post('/api/quit')
 def quit_app():
