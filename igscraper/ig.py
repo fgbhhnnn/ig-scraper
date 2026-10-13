@@ -120,9 +120,62 @@ class IG:
             cur = e['page_info']['end_cursor']
         return allc
 
+    @staticmethod
+    def pk_of(shortcode):
+        A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; pk = 0
+        for ch in shortcode[:11]: pk = pk * 64 + A.index(ch)
+        return str(pk)
+
+    def _v1(self, path, params):
+        H = {'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin'}
+        old = dict(self.s.headers); self.s.headers.update(H)
+        try: return self.get(path, params)
+        finally: self.s.headers.clear(); self.s.headers.update(old)
+
+    def _v1_fill(self, shortcode, out, seen, max_comments, replies, unlimited):
+        """Continue/fill comments through /api/v1/media/{pk}/comments/ (min_id paging) and child_comments for replies."""
+        pk = self.pk_of(shortcode); mi = None; pg = 0; stale = 0; threads = []
+        def add(x, rep):
+            cid = str(x.get('pk') or x.get('id'))
+            if cid in seen: return False
+            seen.add(cid)
+            out.append({'id': cid, 'user': (x.get('user') or {}).get('username', ''), 'text': (x.get('text') or '').replace('\n', ' '),
+                        'likes': x.get('comment_like_count') or 0, 'time': x.get('created_at') or 0, 'is_reply': rep})
+            return True
+        while not self.stop() and len(out) < max_comments and pg < 2000:
+            p = {'can_support_threading': 'true', 'permalink_enabled': 'false'}
+            if mi: p['min_id'] = mi
+            d = self._v1(f'/api/v1/media/{pk}/comments/', p)
+            if not d: break
+            n0 = len(out)
+            for x in d.get('comments') or []:
+                add(x, 0)
+                if replies:
+                    for r in x.get('preview_child_comments') or []: add(r, 1)
+                    if (x.get('child_comment_count') or 0) > len(x.get('preview_child_comments') or []): threads.append(str(x['pk']))
+            pg += 1; stale = stale + 1 if len(out) == n0 else 0
+            if pg % 5 == 0: self.log(f'  IG(v1) 已翻 {pg} 页，共 {len(out)} 条评论…')
+            nm = d.get('next_min_id')
+            if not nm or nm == mi: break
+            mi = nm
+        if not replies: return
+        threads = list(dict.fromkeys(threads))
+        for i, cid in enumerate(threads, 1):
+            if self.stop() or len(out) >= max_comments: break
+            cur = None
+            for _ in range(100 if unlimited else 5):
+                p = {'max_id': cur} if cur else {}
+                d = self._v1(f'/api/v1/media/{pk}/comments/{cid}/child_comments/', p)
+                if not d: break
+                for r in d.get('child_comments') or []: add(r, 1)
+                nc = d.get('next_max_child_cursor')
+                if not d.get('has_more_tail_child_comments') or not nc or nc == cur: break
+                cur = nc
+            if i % 20 == 0: self.log(f'  IG 回复：已读 {i}/{len(threads)} 个楼，共 {len(out)} 条…')
+
     def comments_full(self, shortcode, max_pages=4, max_comments=200, replies=True):
         """Rich comments: [{id,user,text,likes,time,is_reply}] incl. preview of threaded replies; also returns owner username."""
-        cur, out, owner, pg = None, [], '', 0; self.partial = out; more = []; seen = set()
+        cur, out, owner, pg = None, [], '', 0; self.partial = out; more = []; seen = set(); stale = 0; total = 0
         for _ in range(max_pages):
             if self.stop() or len(out) >= max_comments: break
             var = {'shortcode': shortcode, 'first': 50}
@@ -130,7 +183,7 @@ class IG:
             d = self.get('/graphql/query/', {'query_hash': COMMENT_QH, 'variables': json.dumps(var)})
             try: sm = d['data']['shortcode_media']; e = sm['edge_media_to_parent_comment']
             except Exception: break
-            owner = owner or ((sm.get('owner') or {}).get('username') or '')
+            owner = owner or ((sm.get('owner') or {}).get('username') or ''); total = max(total, e.get('count') or 0)
             n0 = len(out)
             for n in e['edges']:
                 nodes = [(n['node'], 0)]
@@ -142,11 +195,16 @@ class IG:
                     seen.add(str(x['id']))
                     out.append({'id': str(x['id']), 'user': x['owner']['username'], 'text': x['text'].replace('\n', ' '),
                                 'likes': (x.get('edge_liked_by') or {}).get('count', 0), 'time': x.get('created_at') or 0, 'is_reply': rep})
-            pg += 1; new = len(out) - n0
+            pg += 1; new = len(out) - n0; stale = stale + 1 if new == 0 else 0
             if pg % 5 == 0: self.log(f'  IG 已翻 {pg} 页，{len(out)} 条评论…')
             nc = e['page_info'].get('end_cursor')
-            if not e['page_info']['has_next_page'] or not nc or nc == cur or not e['edges'] or (new == 0 and pg > 1): break
+            if not e['page_info']['has_next_page'] or not nc or nc == cur or not e['edges'] or stale >= 5: break
             cur = nc
+        unlimited = max_comments >= 10**9
+        if not self.stop() and len(out) < max_comments and total and len(out) < total:
+            self.log(f'  IG GraphQL 拿到 {len(out)}/{total} 条，改用 v1 接口继续补齐…')
+            self._v1_fill(shortcode, out, seen, max_comments, replies, unlimited)
+            more = []
         more = list(dict(more).items())
         for i, (cid, rc) in enumerate(more, 1):
             if self.stop() or len(out) >= max_comments: break
