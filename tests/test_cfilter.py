@@ -47,3 +47,16 @@ def test_device_id_clean():
     for v in ['7655564780489836045', "'7655564780489836045'", j, "'" + j + "'", '"' + j.replace('"', '\\"') + '"', '  ' + j + '\n', '`' + j + '`']:
         assert c(v) == '7655564780489836045', v
     assert c('') == '' and c('abc') == ''
+
+def test_prefilter_reasons():
+    from igscraper.task import prefilter
+    v = {'content_type': 'video', 'comment_count': 0, 'plays': 10, 'plays_known': True, 'publish_date': '2026-01-01', 'caption': 'abc', 'account': 'x'}
+    w = lambda v: True
+    assert prefilter(v, w, 1, 0, '', '', [], []) == '评论数<1'
+    v['comment_count'] = 5
+    assert prefilter(v, w, 1, 100, '', '', [], []) == '播放<100'
+    assert prefilter(v, w, 1, 0, '2026-02-01', '', [], []) == '发布日期不在范围'
+    assert prefilter(v, w, 1, 0, '', '', ['zzz'], []) == '不含必须词'
+    assert prefilter(v, w, 1, 0, '', '', [], ['ab']) == '含排除词'
+    assert prefilter(v, lambda v: False, 1, 0, '', '', [], []) == '内容类型不符'
+    assert prefilter(v, w, 1, 0, '', '', ['abc'], []) is None

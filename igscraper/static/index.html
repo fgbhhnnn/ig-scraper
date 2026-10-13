@@ -77,7 +77,7 @@ MOQ
 
 <div class="tcard"><div class="tc-h"><span class="tn">2</span><h3>抓多少</h3></div><div class="tc-b">
 <div class="frow"><label>目标条数<input id="max_videos" type="number" value="20" min="1"><small class="hint" id="mv_hint">保存够这么多条就停止</small><span class="verr" id="v_mv"></span></label>
-<label>每个关键词翻页数<input id="search_pages" type="number" value="4" min="1" max="10"><small class="hint">每页约 12~50 条搜索结果</small></label></div>
+<label>每个关键词最多翻页<input id="search_pages" type="number" min="0" max="100" placeholder="不限"><small class="hint">留空=不限：一直翻到达成目标或搜索结果用完</small></label></div>
 <div class="tgs"><label class="tg"><input type="checkbox" id="skip_existing" checked><span></span>跳过本地数据库已有的内容 <small class="hint">已检查过的视频不再重复读评论</small></label></div>
 </div></div>
 

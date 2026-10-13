@@ -81,19 +81,24 @@ class IG:
                 'source': source, 'cover': (((i.get('image_versions2') or {}).get('candidates') or [{}])[-1]).get('url', ''), 'is_video': i.get('media_type') == 2,
                 'platform': 'instagram', 'content_type': 'video' if i.get('media_type') == 2 else 'post', 'plays_known': True}
 
-    def keyword_media(self, kw, max_pages=5):
-        p = {'query': kw, 'enable_metadata': 'true'}
-        for pg in range(max_pages):
+    def keyword_media(self, kw, max_pages=0):
+        """max_pages=0 表示翻到底（最多 100 页）"""
+        p = {'query': kw, 'enable_metadata': 'true'}; pg = 0; total = 0
+        while not max_pages or pg < max_pages:
+            if self.stop(): return
             d = self.get('/api/v1/fbsearch/web/top_serp/', p)
-            if not d: return
+            if not d: self.log(f'IG 搜索「{kw}」第{pg+1}页请求失败，换下一个搜索词'); return
+            pg += 1
             mg = d.get('media_grid')
-            if not mg: self.log(f'关键词「{kw}」无视频结果'); return
-            for s in mg.get('sections', []):
-                for m in (s.get('layout_content', {}).get('medias') or []):
-                    if m.get('media'): yield self.norm(m['media'], 'kw:' + kw)
-            if not mg.get('has_more'): return
+            if not mg: self.log(f'关键词「{kw}」无视频结果' if pg == 1 else f'IG 搜索「{kw}」结果已到底（共 {pg-1} 页 {total} 条）'); return
+            ms = [m['media'] for sec in mg.get('sections', []) for m in (sec.get('layout_content', {}).get('medias') or []) if m.get('media')]
+            total += len(ms); self.log(f'IG 搜索「{kw}」第{pg}页 {len(ms)} 条')
+            for m in ms: yield self.norm(m, 'kw:' + kw)
+            if not mg.get('has_more') or not mg.get('next_max_id'):
+                self.log(f'IG 搜索「{kw}」结果已到底（共 {pg} 页 {total} 条）'); return
+            if pg >= 100: return
             p = {'query': kw, 'enable_metadata': 'true', 'rank_token': mg.get('rank_token'), 'next_max_id': mg.get('next_max_id'),
-                 'reels_max_id': mg.get('reels_max_id'), 'page_index': pg + 1}
+                 'reels_max_id': mg.get('reels_max_id'), 'page_index': pg}
 
     def tag_media(self, tag):
         tag = tag.lstrip('#').strip().replace(' ', '')

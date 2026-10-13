@@ -59,6 +59,7 @@ class Task:
         cf_min = max(1, int(P.get('cf_min') or 1)); cf_pages = max(1, min(int(P.get('cf_pages') or 5), 100))
         seen = db.seen_codes(plat) if P.get('skip_existing', True) else set()
         mode = P.get('mode', 'keyword')
+        spages = max(0, int(P.get('search_pages') or 0))   # 0 = 不限，翻到搜索结果用完或达到目标为止
         srcs = []
         if mode in ('keyword', 'both'): srcs += [('kw', k.strip()) for k in P.get('keywords') or [] if k.strip()]
         if mode in ('hashtag', 'both'): srcs += [('tag', t.strip().lstrip('#')) for t in P.get('hashtags') or [] if t.strip()]
@@ -73,7 +74,7 @@ class Task:
             tt_pages = max(1, min(int(P.get('tt_comment_pages') or 2), 50))
             ctype = 'video'
             def gen(kind, s):
-                return cl.search(s if kind == 'kw' else '#' + s, int(P.get('search_pages') or 3), ('kw:' if kind == 'kw' else 'tag:#') + s)
+                return cl.search(s if kind == 'kw' else '#' + s, spages, ('kw:' if kind == 'kw' else 'tag:#') + s)
             def comments(v):
                 own = lambda c: c['user'] == v['account'] or (c.get('uid') and c['uid'] == v.get('owner_id'))
                 cs = cl.comments(v, tt_pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) and not own(c) for c in L))
@@ -94,7 +95,7 @@ class Task:
             def gen(kind, s):
                 q = s if kind == 'kw' else '#' + s
                 for tab in tabs:
-                    yield from cl.search(q, tab, int(P.get('search_pages') or 3), ('kw:' if kind == 'kw' else 'tag:#') + s)
+                    yield from cl.search(q, tab, spages, ('kw:' if kind == 'kw' else 'tag:#') + s)
             fetch_views = P.get('fb_fetch_views', True)
             fb_pages = max(1, min(int(P.get('fb_comment_pages') or 2), 50))
             def comments(v):
@@ -125,7 +126,7 @@ class Task:
             if not cfg.get('cookie'): raise Blocked('请先在「Cookie」页面填写 Instagram Cookie')
             cl = IG(cfg['cookie'], float(cfg.get('delay_min', 1.5)), float(cfg.get('delay_max', 3)), self.log, stopf)
             def gen(kind, s):
-                return cl.keyword_media(s, int(P.get('search_pages') or 4)) if kind == 'kw' else cl.tag_media(s)
+                return cl.keyword_media(s, spages) if kind == 'kw' else cl.tag_media(s)
             def comments(v):
                 return cl.comments(v['shortcode'], pages, until=lambda L: any(m.is_q(c['text'], c['user'], v['account']) for c in L))
             def comments_cf(v):
@@ -133,8 +134,8 @@ class Task:
             def done(): pass
         PN = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}[plat]
         CN = {'video': '视频', 'post': '帖子', 'both': '视频+帖子'}[ctype]
-        local = set()
-        self.set(sources=[{'src': ('#' if k == 'tag' else '') + x, 'found': 0, 'checked': 0, 'kept': 0, 'state': 'wait'} for k, x in srcs])
+        local = set(); FW = {}
+        self.set(filtered=0, filter_why={}, sources=[{'src': ('#' if k == 'tag' else '') + x, 'found': 0, 'checked': 0, 'kept': 0, 'state': 'wait'} for k, x in srcs])
         if cf: self.log(f'按评论内容筛选：{cf_expr}（每条视频最多读 {cf_pages} 页评论，至少 {cf_min} 条命中才保留）')
         self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条{"评论命中筛选" if cf else "有提问"}的内容')
         try:
@@ -150,15 +151,15 @@ class Task:
                     with self.lock: self.state['searched'] += 1; SR['found'] += 1
                     if not code or code in local: continue
                     local.add(code)
-                    if not want(v) or v['comment_count'] < max(1, min_c): continue
-                    if v.get('plays_known') and (v['plays'] or 0) < min_p: continue
-                    if d_from and v['publish_date'] and v['publish_date'] < d_from or d_to and v['publish_date'] and v['publish_date'] > d_to: continue
-                    cap = (v['caption'] + ' ' + v['account']).lower()
-                    if must and not any(w in cap for w in must): continue
-                    if excl and any(w in cap for w in excl): continue
+                    why = prefilter(v, want, min_c, min_p, d_from, d_to, must, excl)
+                    if why:
+                        with self.lock:
+                            self.state['filtered'] = self.state.get('filtered', 0) + 1; SR['filtered'] = SR.get('filtered', 0) + 1
+                            FW[why] = FW.get(why, 0) + 1; self.state['filter_why'] = dict(FW)
+                        self.log(f'· 不符合条件（{why}）{v["account"]} {v["url"]}'); continue
                     if code in seen:
                         with self.lock: self.state['skipped'] += 1
-                        continue
+                        self.log(f'· 跳过已有（以前爬过）{v["account"]} {v["url"]}'); continue
                     with self.lock: self.state['candidates'] += 1
                     self.set(stage='检查评论区', current=v['url'])
                     if cf:
@@ -192,7 +193,23 @@ class Task:
             for x in self.state.get('sources') or []:
                 if x['state'] == 'run': x['state'] = 'stop' if self._stop else 'done'
             done()
-        self.log(f'结束：{"保留" if cf else "匹配"} {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条')
+        why = '已停止' if self._stop else ('已达到目标' if self.state['matched'] >= target else
+               ('搜索结果已全部用完，未达到目标（可增加关键词或放宽筛选条件）' if not spages else f'已翻完设置的每个关键词 {spages} 页，未达到目标（可把「每个关键词翻页数」留空=不限）'))
+        fw = '，'.join(f'{k} {n}' for k, n in sorted(FW.items(), key=lambda x: -x[1]))
+        self.log(f'结束（{why}）：{"保留" if cf else "匹配"} {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条，'
+                 f'不符合条件 {self.state.get("filtered", 0)} 条' + (f'（{fw}）' if fw else '') + f'，搜到 {self.state["searched"]} 条（重复 {self.state["searched"] - len(local)} 条）')
+
+def prefilter(v, want, min_c, min_p, d_from, d_to, must, excl):
+    """搜索结果的预筛选，返回不符合的原因（None = 通过）"""
+    if not want(v): return '内容类型不符'
+    if v['comment_count'] < max(1, min_c): return f'评论数<{max(1, min_c)}'
+    if v.get('plays_known') and (v['plays'] or 0) < min_p: return f'播放<{min_p}'
+    pd = v.get('publish_date') or ''
+    if pd and (d_from and pd < d_from or d_to and pd > d_to): return '发布日期不在范围'
+    cap = ((v.get('caption') or '') + ' ' + (v.get('account') or '')).lower()
+    if must and not any(w in cap for w in must): return '不含必须词'
+    if excl and any(w in cap for w in excl): return '含排除词'
+    return None
 
 def cf_hits(cf, cs, v, plat):
     """按评论筛选表达式统计命中评论（排除作者本人）。行格式与「评论爬取」页一致。"""

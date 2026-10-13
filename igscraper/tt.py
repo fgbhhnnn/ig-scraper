@@ -169,18 +169,27 @@ class TT:
                 'publish_date': datetime.datetime.fromtimestamp(ct).strftime('%Y-%m-%d') if ct else '',
                 'source': source, 'cover': (i.get('video') or {}).get('cover') or (i.get('video') or {}).get('originCover') or '', 'is_video': True, 'content_type': 'video', 'plays_known': True}
 
-    def search(self, kw, max_pages=3, source=None):
+    def search(self, kw, max_pages=0, source=None):
+        """翻页需要带上第 1 页返回的 search_id（= extra.logid / log_pb.impr_id），否则第 2 页起永远是 0 条。max_pages=0 表示翻到底。"""
         ref = 'https://www.tiktok.com/search?q=' + urllib.parse.quote(kw)
-        off, cur = 0, '0'
-        for pg in range(max_pages):
-            d = self.api('/api/search/general/full/', dict(keyword=kw, offset=str(off), count='12', cursor=cur,
-                         is_non_personalized_search='0', device_type='web_h265'), ref, 'search')
-            if not d: return
+        off, sid, pg, total = 0, '', 0, 0
+        while not max_pages or pg < max_pages:
+            if self.stop(): return
+            p = dict(keyword=kw, offset=str(off), count='12', cursor=str(off), is_non_personalized_search='0', device_type='web_h265')
+            if sid: p['search_id'] = sid
+            d = self.api('/api/search/general/full/', p, ref, 'search')
+            if not d: self.log(f'TikTok 搜索「{kw}」第{pg+1}页请求失败，换下一个搜索词'); return
+            pg += 1
+            sid = sid or (d.get('extra') or {}).get('logid') or (d.get('log_pb') or {}).get('impr_id') or ''
             items = [x['item'] for x in (d.get('data') or []) if x.get('type') == 1 and x.get('item')]
-            self.log(f'TikTok 搜索「{kw}」第{pg+1}页 {len(items)} 条')
+            total += len(items)
+            self.log(f'TikTok 搜索「{kw}」第{pg}页 {len(items)} 条')
             for i in items: yield self.norm(i, source or 'kw:' + kw)
-            if not d.get('has_more'): return
-            cur = str(d.get('cursor') or off + 12); off = int(cur) if cur.isdigit() else off + 12
+            if not d.get('has_more') or not d.get('data'):
+                self.log(f'TikTok 搜索「{kw}」结果已到底（共 {pg} 页 {total} 条）'); return
+            nc = d.get('cursor')
+            off = int(nc) if str(nc).isdigit() and int(nc) > off else off + 12
+            if pg >= 100: return
 
     def comments(self, item, max_pages=2, until=None):
         ref = item['url']; cur = '0'; out = []

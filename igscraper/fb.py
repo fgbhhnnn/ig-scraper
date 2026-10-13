@@ -223,7 +223,7 @@ class FB:
                 'taken_at': ct, 'publish_date': datetime.datetime.fromtimestamp(ct).strftime('%Y-%m-%d') if ct else '',
                 'source': source, 'is_video': is_vid, 'content_type': 'video' if is_vid else 'post', 'plays_known': False}
 
-    def search(self, q, tab='videos', max_pages=3, source=None):
+    def search(self, q, tab='videos', max_pages=0, source=None):
         """tab: videos | posts. Yields normalized rows."""
         source = source or 'kw:' + q
         if not self.uid: self.login()
@@ -249,15 +249,19 @@ class FB:
         try: v['args']['experience']['client_defined_experiences'] = []
         except Exception: pass
         c = cur[0]
-        for _ in range(max_pages - 1):
-            if not (c and c[0] and c[1]) or self.stop(): return
+        pg, total = 1, len(edges)
+        while not max_pages or pg < max_pages:
+            if self.stop(): return
+            if not (c and c[0] and c[1]): self.log(f'FB 搜索「{q}」结果已到底（共 {pg} 页 {total} 条）'); return
+            if pg >= 100: return
+            pg += 1
             v['cursor'] = c[0]
             o = self.gql('SearchCometResultsPaginatedResultsQuery', v, su)
             edges.clear(); cur[0] = None; walk(o, f); c = cur[0]
             n = 0; rows = [x for x in (self.row(e, source) for e in edges) if x]
-            self.log(f'FB 搜索「{q}」翻页 {len(rows)} 条')
+            total += len(rows); self.log(f'FB 搜索「{q}」第{pg}页 {len(rows)} 条')
             for x in rows: n += 1; yield x
-            if not n: return
+            if not n: self.log(f'FB 搜索「{q}」结果已到底（共 {pg} 页 {total} 条）'); return
 
     def post_page(self, item):
         """Fetch post page: returns (comments[{user,text}], plays, end_cursor). First ~10 comments come in HTML."""
