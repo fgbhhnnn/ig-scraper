@@ -20,7 +20,7 @@ async function fetchModels(){msg('mmsg','获取中…',1);const d=await api('/ap
  if(!d.ok)return msg('mmsg',d.error);const cur=$('ai_model').value;$('ai_model').innerHTML=d.models.map(m=>`<option ${m===cur?'selected':''}>${esc(m)}</option>`).join('');msg('mmsg','✅ 共 '+d.models.length+' 个模型',1)}
 async function saveSettings(){const b={ai_base:$('ai_base').value.trim(),ai_model:$('ai_model_manual').value.trim()||$('ai_model').value,delay_min:+$('delay_min').value||1.5,delay_max:+$('delay_max').value||3,fb_delay_min:+$('fb_delay_min').value||1.5,fb_delay_max:+$('fb_delay_max').value||3,tt_delay_min:+$('tt_delay_min').value||1.5,tt_delay_max:+$('tt_delay_max').value||3,port:+$('port').value||8765,ai_fps:+$('ai_fps').value||1,ai_max_images:$('ai_max_images').value?+$('ai_max_images').value:'',ai_stt_model:$('ai_stt_model').value.trim(),ai_vision:$('ai_vision').value,ai_comment_pages:+$('ai_comment_pages').value||5,ai_comments_send:+$('ai_comments_send').value||120};
  if($('ai_key').value)b.ai_key=$('ai_key').value.trim();await api('/api/config',b);$('ai_key').value='';msg('smsg','✅ 已保存',1);loadCfg()}
-function merge(id,arr){const old=$('ai_append').checked?lines(id):[];const s=new Set(old.map(x=>x.toLowerCase()));arr.forEach(x=>{if(!s.has(x.toLowerCase())){s.add(x.toLowerCase());old.push(x)}});$(id).value=old.join('\n')}
+function merge(id,arr){const old=$('ai_append').checked?lines(id):[];const s=new Set(old.map(x=>x.toLowerCase()));arr.forEach(x=>{if(!s.has(x.toLowerCase())){s.add(x.toLowerCase());old.push(x)}});$(id).value=old.join('\n');chipRender(id)}
 async function aiExpand(){msg('aimsg','AI 裂变中…（约 10-60 秒）',1);const d=await api('/api/expand',{keywords:lines('keywords'),hashtags:lines('hashtags'),info:lines('phrases')});
  if(!d.ok)return msg('aimsg',d.error);merge('keywords',d.keywords);merge('hashtags',d.hashtags);merge('phrases',d.comment_phrases);
  msg('aimsg',`✅ 关键词 ${d.keywords.length}、标签 ${d.hashtags.length}、评论短语 ${d.comment_phrases.length}`,1)}
@@ -30,7 +30,7 @@ function params(){FKEYS.forEach(k=>localStorage['f_'+k]=$(k).value);['skip_exist
  date_from:$('date_from').value,date_to:$('date_to').value,must_words:words('must_words'),exclude_words:words('exclude_words'),keywords:lines('keywords'),hashtags:lines('hashtags'),comment_phrases:lines('phrases'),
  cf_expr:$('cf_expr').value.trim(),cf_min:+$('cf_min').value||1,cf_pages:+$('cf_pages').value||5,skip_existing:$('skip_existing').checked,use_default_rules:$('use_default_rules').checked,question_mark:$('question_mark').checked}}
 function restore(){FKEYS.forEach(k=>{if(localStorage['f_'+k]!==undefined)$(k).value=localStorage['f_'+k]});['skip_existing','use_default_rules','question_mark','fb_fetch_views'].forEach(k=>{if(localStorage['f_'+k]!==undefined)$(k).checked=localStorage['f_'+k]==='1'})}
-async function startTask(){const d=await api('/api/task/start',params());if(!d.ok)return msg('tmsg',d.error);logN=0;LOGS=[];$('r_log').innerHTML='';lastRun=d.run_id;show('run');poll()}
+async function startTask(){if(!taskValid())return msg('tmsg','请先修正标红的项');const d=await api('/api/task/start',params());if(!d.ok)return msg('tmsg',d.error);logN=0;LOGS=[];$('r_log').innerHTML='';lastRun=d.run_id;show('run');poll()}
 async function stopTask(){await api('/api/task/stop',{})}
 let logN=0,timer=null,lastRun=null;
 let LOGS=[],LGF='all';
@@ -100,7 +100,7 @@ async function cLoad(){const d=await api('/api/comments?'+cQ());if(!d.ok){$('c_e
 function cExp(f,all){const p=cQ();p.set('fmt',f);if(all)p.set('all','1');location.href='/api/comments/export?'+p}
 async function cClear(){if(confirm('确定清空评论库？')){await api('/api/comments/clear',{});cLoad()}}
 
-function platUI(){const p=$('platform').value;document.querySelectorAll('#p-task [data-plat]').forEach(e=>e.hidden=!e.dataset.plat.split(' ').includes(p))}
+function platUI(){const p=$('platform').value;document.querySelectorAll('#p-task [data-plat]').forEach(e=>e.hidden=!e.dataset.plat.split(' ').includes(p));document.querySelectorAll('.pcard').forEach(c=>c.classList.toggle('on',c.dataset.p===p));taskSum()}
 document.addEventListener('DOMContentLoaded',()=>{$('platform').addEventListener('change',platUI);setTimeout(platUI,300);const h=$('c_help');if(!localStorage.getItem('c_help_seen')){h.open=true;localStorage.setItem('c_help_seen','1')}});
 
 async function ttDiag(){const p=$('ttdiag');p.hidden=false;p.textContent='诊断中…（约 5~10 秒）';const d=await api('/api/tt/diag',{});p.textContent=(d.lines||[]).join('\n')}
@@ -172,3 +172,21 @@ let REPV=[];
 function repShow(i){document.querySelectorAll('.vchip').forEach((b,j)=>b.classList.toggle('on',i===j));renderSecs('replica',REPV[i].text);AREC.replica=REPV[i].text}
 
 document.addEventListener('DOMContentLoaded',()=>{const e=$('cf_expr');if(!e)return;let t;e.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(async()=>{const v=e.value.trim();if(!v){$('cf_err').textContent='';return}const d=await api('/api/cfilter/check?expr='+encodeURIComponent(v));$('cf_err').textContent=d.ok?'✓ 语法正确':'❌ '+d.error;$('cf_err').className=d.ok?'ok':'err'},400)})});
+
+function pickPlat(p){$('platform').value=p;localStorage.f_platform=p;platUI()}
+function chipRender(id){const w=$(id+'_chips');if(!w)return;const L=lines(id);w.querySelector('.chips-l').innerHTML=L.map((x,i)=>`<span class="kchip">${esc(x)}<button onclick="chipDel('${id}',${i})" title="删除">×</button></span>`).join('');w.querySelector('.chip-n').textContent=L.length?L.length+' 个':'';taskSum()}
+function chipAdd(id,txt){const L=lines(id),s=new Set(L.map(x=>x.toLowerCase()));txt.split(/[\n,，]/).map(x=>x.trim().replace(id==='hashtags'?/^#/:/^$/,'')).filter(Boolean).forEach(x=>{if(!s.has(x.toLowerCase())){s.add(x.toLowerCase());L.push(x)}});$(id).value=L.join('\n');chipRender(id)}
+function chipDel(id,i){const L=lines(id);L.splice(i,1);$(id).value=L.join('\n');chipRender(id)}
+function chipify(id){const ta=$(id);ta.hidden=true;const w=document.createElement('div');w.className='chipbox';w.id=id+'_chips';w.innerHTML='<div class="chips-l"></div><input placeholder="输入后回车添加…"><span class="chip-n"></span><button class="ghost sm clr" title="清空">清空</button>';ta.after(w);
+ const inp=w.querySelector('input');inp.onkeydown=e=>{if((e.key==='Enter'||e.key===','||e.key==='，')&&inp.value.trim()){e.preventDefault();chipAdd(id,inp.value);inp.value=''}else if(e.key==='Backspace'&&!inp.value){const L=lines(id);if(L.length)chipDel(id,L.length-1)}};
+ inp.onpaste=e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\n,，]/.test(t)){e.preventDefault();chipAdd(id,t)}};inp.onblur=()=>{if(inp.value.trim()){chipAdd(id,inp.value);inp.value=''}};
+ w.onclick=e=>{if(e.target===w||e.target.classList.contains('chips-l'))inp.focus()};w.querySelector('.clr').onclick=()=>{if(confirm('清空这个列表？')){ta.value='';chipRender(id)}};chipRender(id)}
+function taskSum(){if(!$('sb_sum'))return;const p=$('platform').value,m=$('mode').value;const nk=m!=='hashtag'?lines('keywords').length:0,nt=m!=='keyword'?lines('hashtags').length:0;const cf=$('cf_expr').value.trim();
+ const parts=[`<span class="badge ${p}">${PN[p]}</span>`,nk?`${nk} 个关键词`:'',nt?`${nt} 个标签`:'',`目标 <b>${+$('max_videos').value||0}</b> 条`,p!=='tiktok'?{video:'视频',post:'帖子',both:'视频+帖子'}[$('content_type').value]:'',cf?'<span class="on">评论筛选已开</span>':'',$('skip_existing').checked?'跳过已有':''].filter(Boolean);
+ $('sb_sum').innerHTML=parts.join('<i>·</i>');$('cf_state').textContent=cf?'已启用':'未启用';$('cf_state').classList.toggle('on',!!cf);$('tag_w').classList.toggle('dim',m==='keyword');$('kw_w').classList.toggle('dim',m==='hashtag');
+ $('mv_hint').textContent=cf?'评论命中筛选的视频保存够这么多条就停止':'有提问的内容保存够这么多条就停止'}
+function taskValid(){let ok=true;const set=(id,t)=>{$(id).textContent=t;if(t)ok=false};const m=$('mode').value;
+ set('v_kw',m!=='hashtag'&&!lines('keywords').length?'请至少添加一个关键词':'');set('v_tag',m!=='keyword'&&!lines('hashtags').length?'请至少添加一个标签':'');
+ set('v_mv',!(+$('max_videos').value>=1)?'至少 1 条':'');set('v_date',$('date_from').value&&$('date_to').value&&$('date_from').value>$('date_to').value?'结束日期早于开始日期':'');
+ if($('cf_err').classList.contains('err')&&$('cf_err').textContent.startsWith('❌'))ok=false;return ok}
+document.addEventListener('DOMContentLoaded',()=>{['keywords','hashtags','phrases'].forEach(chipify);document.querySelectorAll('#p-task input,#p-task select,#p-task textarea').forEach(e=>{e.addEventListener('input',()=>{taskSum();if(document.querySelector('#p-task .verr:not(:empty)'))taskValid()});e.addEventListener('change',taskSum)});setTimeout(()=>{['keywords','hashtags','phrases'].forEach(chipRender);platUI()},350)});

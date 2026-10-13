@@ -42,43 +42,47 @@
 <h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label><label>TikTok 最小<input id="tt_delay_min" type="number" step="0.5" min="0.5"></label><label>TikTok 最大<input id="tt_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
 <div class="row"><button onclick="saveSettings()">保存设置</button><span id="smsg"></span></div><p class="hint" id="ddir"></p>
 </section>
-<section id="p-task" hidden><h2>任务配置</h2>
-<div class="grid3">
-<label>搜索关键词（每行一个）<textarea id="keywords" rows="7">handbag factory
+<section id="p-task" hidden class="task-page">
+<div class="tp-head"><div><h2>新建抓取任务</h2><p class="hint">选平台 → 填关键词 → 设数量和筛选 → 开始。只读抓取，不会点赞、关注或评论。</p></div></div>
+<select id="platform" hidden><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select>
+<div class="plats">
+<button class="pcard" data-p="tiktok" onclick="pickPlat('tiktok')"><span class="pic tt">♪</span><div><b>TikTok</b><i>只抓视频 · 每页约 20 条评论</i></div><span class="pchk">✓</span></button>
+<button class="pcard" data-p="instagram" onclick="pickPlat('instagram')"><span class="pic ig">◎</span><div><b>Instagram</b><i>Reels / 帖子 · 每页约 50 条评论</i></div><span class="pchk">✓</span></button>
+<button class="pcard" data-p="facebook" onclick="pickPlat('facebook')"><span class="pic fb">f</span><div><b>Facebook</b><i>视频 / 帖子 · 每页约 10 条评论</i></div><span class="pchk">✓</span></button></div>
+<p class="hint plat-note" data-plat="instagram">Instagram：关键词走站内搜索，话题标签读取标签页的热门/最新内容。</p>
+<p class="hint plat-note" data-plat="tiktok">TikTok：话题标签会按「#标签」作为关键词搜索。</p>
+<p class="hint plat-note" data-plat="facebook">Facebook：话题标签按「#标签」搜索；每条内容要读一次评论（约 2~5 秒/条），目标条数建议不要太大。</p>
+
+<div class="tcard"><div class="tc-h"><span class="tn">1</span><h3>搜什么</h3></div><div class="tc-b">
+<div class="frow"><label data-plat="instagram facebook">内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
+<label>来源<select id="mode"><option value="keyword">关键词搜索（推荐，更准）</option><option value="hashtag">话题标签</option><option value="both">两者都用</option></select></label></div>
+<div class="fld" id="kw_w"><div class="fl">搜索关键词 <span class="hint">回车或逗号添加，可直接粘贴多行</span><span class="verr" id="v_kw"></span></div><textarea id="keywords" rows="7">handbag factory
 handbag manufacturer
-leather bag factory</textarea></label>
-<label>话题标签（每行一个，不带#）<textarea id="hashtags" rows="7">handbagfactory
-bagmanufacturer</textarea></label>
-<label>评论区关键信息 / 匹配短语（每行一个）<textarea id="phrases" rows="7">价格
+leather bag factory</textarea></div>
+<div class="fld" id="tag_w"><div class="fl">话题标签 <span class="hint">不带 #</span><span class="verr" id="v_tag"></span></div><textarea id="hashtags" rows="7">handbagfactory
+bagmanufacturer</textarea></div>
+<div class="fld"><div class="fl">评论区关键信息 / 询盘短语 <span class="hint">评论里出现这些词就算「提问」</span></div><textarea id="phrases" rows="7">价格
 MOQ
-怎么买</textarea></label></div>
-<div class="row"><button onclick="aiExpand()">✨ AI 裂变</button><label class="cb"><input type="checkbox" id="ai_append" checked>追加到现有列表（不勾选则替换）</label><span id="aimsg"></span></div>
-<p class="hint">AI 会把关键词/标签扩展成更多搜索词，并把「评论区关键信息」裂变成多语言询盘短语。没有 AI Key 也能用：内置询盘规则(how much/price/moq/wholesale/whatsapp/where…)始终生效，可直接手动编辑上面三个列表。</p>
-<h3>平台与内容</h3><div class="row">
-<label>平台<select id="platform"><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
-<label data-plat="instagram facebook">内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
-<label data-plat="instagram">Instagram 评论最多翻页数（50条/页）<input id="comment_pages" type="number" value="2" min="1" max="5"></label>
-<label data-plat="tiktok">TikTok 评论最多翻页数（20条/页）<input id="tt_comment_pages" type="number" value="2" min="1" max="50"></label>
-<label data-plat="facebook">Facebook 评论最多翻页数（约10条/页）<input id="fb_comment_pages" type="number" value="2" min="1" max="50"></label>
-<label class="cb" id="fbviews_w" data-plat="facebook"><input type="checkbox" id="fb_fetch_views" checked>Facebook：从帖子页读取播放量</label></div>
-<p class="hint" data-plat="instagram">Instagram：关键词走站内搜索，话题标签读取标签页的热门/最新内容；每页约 50 条评论。</p>
-<p class="hint" data-plat="tiktok">TikTok：只抓视频；话题标签会按「#标签」作为关键词搜索；每页约 20 条评论。</p>
-<p class="hint" data-plat="facebook">Facebook：话题标签会按「#标签」作为关键词搜索；每条内容需要读一次评论（约 2~5 秒/条），每页约 10 条评论，建议目标条数不要太大。</p>
-<h3>来源与数量</h3><div class="row">
-<label>来源<select id="mode"><option value="keyword">关键词搜索（推荐，更准）</option><option value="hashtag">话题标签</option><option value="both">两者都用</option></select></label>
-<label>目标条数（有提问的）<input id="max_videos" type="number" value="20" min="1"></label>
-<label>每个关键词翻页数<input id="search_pages" type="number" value="4" min="1" max="10"></label></div>
-<div class="row"><label class="cb"><input type="checkbox" id="skip_existing" checked>跳过本地数据库已有的内容</label>
-<label class="cb"><input type="checkbox" id="use_default_rules" checked>使用内置询盘规则</label>
-<label class="cb"><input type="checkbox" id="question_mark" checked>带问号的评论也算提问</label></div>
-<h3>筛选（可选）</h3><div class="row">
-<label>最少评论数<input id="min_comments" type="number" value="1"></label><label>最少播放量<input id="min_plays" type="number" value="0"></label>
-<label>发布日期从<input id="date_from" type="date"></label><label>到<input id="date_to" type="date"></label></div>
-<div class="row"><label class="grow">文案/账号必须包含任一词（逗号分隔）<input id="must_words" placeholder="bag, handbag, leather, purse, tote, factory"></label>
-<label class="grow">排除词（逗号分隔）<input id="exclude_words" placeholder="sewing, machine, tour, diy, crochet"></label></div>
-<div class="cfbox"><label class="grow">按评论内容筛选视频（可选，留空=不启用，沿用上面的提问规则）<textarea id="cf_expr" rows="2" placeholder='例：price or moq or "how much" ／ (价格 或者 多少钱) 不含 scam ／ 语言:西班牙语 and 点赞>=2'></textarea></label>
-<div class="row"><label>最少匹配评论数<input id="cf_min" type="number" value="1" min="1"></label><label>每条视频最多读评论页数<input id="cf_pages" type="number" value="5" min="1" max="100"></label><span id="cf_err" class="err"></span></div>
-<p class="hint">填写后：搜索到的每条候选视频都会读取评论（IG 约 50 条/页、TikTok 约 20 条/页、Facebook 约 10 条/页，默认最多 5 页），排除作者本人评论后，命中条数 ≥「最少匹配评论数」才保存；「目标条数」按保留下来的视频计算。不命中的视频会记入「已抓过」，勾选「跳过本地数据库已有的内容」时下次不再重复检查。</p>
+怎么买</textarea></div>
+<div class="aibar"><button class="ai-btn" onclick="aiExpand()">✨ AI 扩展关键词</button><label class="tg"><input type="checkbox" id="ai_append" checked><span></span>追加到现有（关闭则替换）</label><span id="aimsg"></span>
+<span class="hint">AI 会扩展搜索词和标签，并把关键信息裂变成多语言询盘短语；没有 AI Key 也能用，内置询盘规则始终生效。</span></div>
+</div></div>
+
+<div class="tcard"><div class="tc-h"><span class="tn">2</span><h3>抓多少</h3></div><div class="tc-b">
+<div class="frow"><label>目标条数<input id="max_videos" type="number" value="20" min="1"><small class="hint" id="mv_hint">保存够这么多条就停止</small><span class="verr" id="v_mv"></span></label>
+<label>每个关键词翻页数<input id="search_pages" type="number" value="4" min="1" max="10"><small class="hint">每页约 12~50 条搜索结果</small></label></div>
+<div class="tgs"><label class="tg"><input type="checkbox" id="skip_existing" checked><span></span>跳过本地数据库已有的内容 <small class="hint">已检查过的视频不再重复读评论</small></label></div>
+</div></div>
+
+<div class="tcard"><div class="tc-h"><span class="tn">3</span><h3>筛选 <small class="hint">（可选）</small></h3></div><div class="tc-b">
+<div class="frow f4"><label>最少评论数<input id="min_comments" type="number" value="1"></label><label>最少播放量<input id="min_plays" type="number" value="0"></label>
+<label>发布日期从<input id="date_from" type="date"></label><label>到<input id="date_to" type="date"><span class="verr" id="v_date"></span></label></div>
+<div class="frow"><label>文案/账号必须包含任一词（逗号分隔）<input id="must_words" placeholder="bag, handbag, leather, purse, tote, factory"></label>
+<label>排除词（逗号分隔）<input id="exclude_words" placeholder="sewing, machine, tour, diy, crochet"></label></div>
+<div class="cfbox"><div class="cf-h"><b>💬 按评论内容筛选视频</b><span class="cfstate" id="cf_state">未启用</span></div>
+<textarea id="cf_expr" rows="2" placeholder='留空=不启用（沿用询盘规则）。例：price or moq or "how much" ／ (价格 或者 多少钱) 不含 scam ／ 语言:西班牙语 and 点赞>=2'></textarea>
+<div class="frow"><label>最少匹配评论数<input id="cf_min" type="number" value="1" min="1"></label><label>每条视频最多读评论页数<input id="cf_pages" type="number" value="5" min="1" max="100"></label><span id="cf_err" class="err"></span></div>
+<p class="hint">填写后，每条候选视频都会读取评论（默认最多 5 页），排除作者本人评论后，命中条数 ≥「最少匹配评论数」才保存，「目标条数」按保留的视频计算；不命中的视频记入「已抓过」，下次自动跳过。</p>
 <details id="cf_help" class="helpbox"><summary>📖 评论筛选怎么写？（语法与「⑥ 评论爬取」一致，点击展开/收起）</summary>
 <div class="grid2"><div><table class="ht"><tr><th>想要</th><th>写法</th></tr>
 <tr><td>同时包含两个词</td><td><code>price and moq</code>　或 <code>price 并且 moq</code>　或直接空格 <code>price moq</code></td></tr>
@@ -92,8 +96,19 @@ MOQ
 <tr><td>按平台 / 地区</td><td><code>平台:tiktok</code>　<code>地区:巴西</code></td></tr>
 <tr><td>括号组合</td><td><code>(price or 多少钱) and 语言:es and not scam</code></td></tr></table>
 <p class="hint">不区分大小写；英文词按词首匹配（price 能匹配 prices）；中文按包含匹配。符号写法也可以：<code>&&</code> <code>||</code> <code>!</code>。语法写错会在右侧提示。「可能地区」仅由语言推断，不是真实位置。</p></div>
-<div><table class="ht"><tr><th>语言代码</th><th>中文名</th></tr><tr><td><code>en</code></td><td>英语</td></tr><tr><td><code>es</code></td><td>西班牙语</td></tr><tr><td><code>pt</code></td><td>葡萄牙语</td></tr><tr><td><code>fr</code></td><td>法语</td></tr><tr><td><code>de</code></td><td>德语</td></tr><tr><td><code>it</code></td><td>意大利语</td></tr><tr><td><code>ru</code></td><td>俄语</td></tr><tr><td><code>ar</code></td><td>阿拉伯语</td></tr><tr><td><code>tr</code></td><td>土耳其语</td></tr><tr><td><code>id</code></td><td>印尼语</td></tr><tr><td><code>ms</code></td><td>马来语</td></tr><tr><td><code>vi</code></td><td>越南语</td></tr><tr><td><code>th</code></td><td>泰语</td></tr><tr><td><code>hi</code></td><td>印地语</td></tr><tr><td><code>tl</code></td><td>菲律宾语</td></tr><tr><td><code>zh</code></td><td>中文</td></tr><tr><td><code>ja</code></td><td>日语</td></tr><tr><td><code>ko</code></td><td>韩语</td></tr><tr><td><code>pl</code></td><td>波兰语</td></tr><tr><td><code>nl</code></td><td>荷兰语</td></tr><tr><td><code>unknown</code></td><td>未知（太短/表情）</td></tr></table></div></div></details></div>
-<div class="row"><button class="big" onclick="startTask()">▶ 开始抓取</button><span id="tmsg"></span></div>
+<div><table class="ht"><tr><th>语言代码</th><th>中文名</th></tr><tr><td><code>en</code></td><td>英语</td></tr><tr><td><code>es</code></td><td>西班牙语</td></tr><tr><td><code>pt</code></td><td>葡萄牙语</td></tr><tr><td><code>fr</code></td><td>法语</td></tr><tr><td><code>de</code></td><td>德语</td></tr><tr><td><code>it</code></td><td>意大利语</td></tr><tr><td><code>ru</code></td><td>俄语</td></tr><tr><td><code>ar</code></td><td>阿拉伯语</td></tr><tr><td><code>tr</code></td><td>土耳其语</td></tr><tr><td><code>id</code></td><td>印尼语</td></tr><tr><td><code>ms</code></td><td>马来语</td></tr><tr><td><code>vi</code></td><td>越南语</td></tr><tr><td><code>th</code></td><td>泰语</td></tr><tr><td><code>hi</code></td><td>印地语</td></tr><tr><td><code>tl</code></td><td>菲律宾语</td></tr><tr><td><code>zh</code></td><td>中文</td></tr><tr><td><code>ja</code></td><td>日语</td></tr><tr><td><code>ko</code></td><td>韩语</td></tr><tr><td><code>pl</code></td><td>波兰语</td></tr><tr><td><code>nl</code></td><td>荷兰语</td></tr><tr><td><code>unknown</code></td><td>未知（太短/表情）</td></tr></table></div></div></details></div></div></div>
+
+<details class="tcard adv"><summary class="tc-h"><span class="tn">4</span><h3>高级设置</h3><span class="hint">评论翻页、询盘规则</span><span class="chev">▾</span></summary><div class="tc-b">
+<div class="frow"><label data-plat="instagram">Instagram 评论最多翻页数（50 条/页）<input id="comment_pages" type="number" value="2" min="1" max="5"></label>
+<label data-plat="tiktok">TikTok 评论最多翻页数（20 条/页）<input id="tt_comment_pages" type="number" value="2" min="1" max="50"></label>
+<label data-plat="facebook">Facebook 评论最多翻页数（约 10 条/页）<input id="fb_comment_pages" type="number" value="2" min="1" max="50"></label></div>
+<p class="hint">不启用「按评论内容筛选」时，读到第一条提问就停止翻页，以上是最多翻几页。</p>
+<div class="tgs"><label class="tg"><input type="checkbox" id="use_default_rules" checked><span></span>使用内置询盘规则 <small class="hint">how much / price / moq / wholesale / whatsapp…</small></label>
+<label class="tg"><input type="checkbox" id="question_mark" checked><span></span>带问号的评论也算提问</label>
+<label class="tg" id="fbviews_w" data-plat="facebook"><input type="checkbox" id="fb_fetch_views" checked><span></span>Facebook：从帖子页读取播放量</label></div>
+</div></details>
+
+<div class="startbar"><div class="sb-sum" id="sb_sum"></div><span id="tmsg"></span><button class="big-primary" onclick="startTask()">▶ 开始抓取</button></div>
 </section>
 <section id="p-run" hidden class="run-page">
 <div class="rh"><div class="rh-l"><span id="rp_plat" class="badge">-</span><div class="rh-t"><h2 id="rp_title">任务进度</h2><div class="rh-kw" id="rp_kw"></div></div></div>
