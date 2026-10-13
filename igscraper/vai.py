@@ -238,7 +238,8 @@ PROFILE_SPEC = """请输出「视频画像」，Markdown 格式，必须包含�
 ## 六、情绪触发点
 ## 七、评论区的问题与顾虑（按类别归纳，每类给：数量/占比、2~3 条原话、视频里有没有回答）
 ## 八、为什么能成为爆款（3~6 条，每条都要对应上面的具体证据）
-## 九、可复用的爆款公式（一句话概括 + 可直接套用的模板）"""
+## 九、可复用的爆款公式（一句话概括 + 可直接套用的模板）
+## 十、高光镜头（挑 5~8 个最值得借鉴的镜头，按时间排序。每行严格按格式输出，不要表格：`- 时间点s｜镜头名（不超过 10 个字）｜画面里具体发生了什么 + 为什么好（不超过 50 字）`，时间点必须是上面截图里真实存在的时间，如 `- 1.25s｜手指戳镜头｜……`）"""
 
 def meta_text(M, comments, transcript):
     tags = ' '.join('#' + t for t in M.get('tags') or [])
@@ -383,6 +384,17 @@ def make_thumbs(vpath, tmp, hook_ts):
     hs = frames.extract_frames(vpath, d, hook_ts[:16], width=150, quality=7)
     return {'thumb': u(cov[0][1]) if cov else '', 'hook_thumbs': [{'t': t, 'img': u(p)} for t, p in hs]}
 
+def frame_thumbs(fr, tmp, width=200, quality=12):
+    """所有截图再缩成小图（约 4~6 KB/张）存进记录，用于时间标签悬停预览、高光镜头和分镜对照。-> [{t, img}]"""
+    d = os.path.join(tmp, 'ft'); os.makedirs(d, exist_ok=True); out = []; last = -1
+    for i, (t, p) in enumerate(sorted(fr)):
+        if t - last < 0.2: continue
+        q = os.path.join(d, f'{i:04d}.jpg')
+        frames._run(['-i', p, '-vf', f'scale={width}:-2', '-q:v', str(quality), '-y', q], 60)
+        if os.path.exists(q) and os.path.getsize(q) > 0:
+            out.append({'t': round(t, 2), 'img': 'data:image/jpeg;base64,' + base64.b64encode(open(q, 'rb').read()).decode()}); last = t
+    return out
+
 # ---------------- 任务 ----------------
 BATCH = {}   # 本次运行中 (接口, 模型) 成功过的每批图片数，后续直接用
 class AnalyzeTask(Task):
@@ -410,7 +422,7 @@ class AnalyzeTask(Task):
             nq = sum(x['q'] for x in cs); self.log(f'评论 {len(cs)} 条，其中提问/询盘 {nq} 条（发给 AI 前 {min(len(cs), csend)} 条）')
             cs = cs[:csend]
             if self._stop: return
-            self.set(stage='③ 下载视频', scanned=2); fr = []; transcript = ''; vpath = os.path.join(tmp, 'video.mp4')
+            self.set(stage='③ 下载视频', scanned=2); fr = []; fthumbs = []; transcript = ''; vpath = os.path.join(tmp, 'video.mp4')
             if not vurl: self.log('⚠️ 没拿到视频地址（可能是图片帖），只用文案和评论分析')
             else:
                 dl(vurl, vpath); self.log(f'视频已下载 {os.path.getsize(vpath)/1e6:.1f} MB（临时文件，分析完自动删除）')
@@ -421,6 +433,11 @@ class AnalyzeTask(Task):
                 fr = frames.extract_frames(vpath, tmp, ts)
                 try: M.update(make_thumbs(vpath, tmp, [t for t, _ in fr if t < 3.0]))
                 except Exception as e: self.log(f'缩略图生成失败（不影响分析）：{e}')
+                try:
+                    fthumbs = frame_thumbs(fr, tmp); kb = sum(len(x['img']) for x in fthumbs) / 1024
+                    self.log(f'已保存 {len(fthumbs)} 张小图用于高光镜头/时间点预览（约 {kb:.0f} KB）')
+                    if fthumbs: M.pop('hook_thumbs', None)   # 前 3 秒条直接用这些小图，不再重复存
+                except Exception as e: self.log(f'小图生成失败（不影响分析）：{e}')
                 self.log(f"时长 {M['duration']:.1f}s，前 3 秒每秒 4 张、之后每秒 {fps:g} 张，另加转场帧 {len(ts) - len(frames.frame_schedule(M['duration'], fps=fps))} 张，共截图 {len(fr)} 张")
                 transcript = self.do_stt(cfg, b, k, vpath, tmp, has_a)
             if self._stop: return
@@ -428,7 +445,7 @@ class AnalyzeTask(Task):
             profile, vision, note = self.ai_profile(b, k, model, M, cs, transcript, fr, cap, cfg.get('ai_vision', ''))
             M.pop('_item', None)
             aid = db.save_analysis({'platform': pl, 'url': M['url'], 'account': M['account'], 'caption': M['caption'], 'meta': json.dumps(dict(M, frames=len(fr), comment_n=len(cs), question_n=nq, top_comments=[c for c in cs if c['q']][:30]), ensure_ascii=False),
-                                    'profile': profile, 'vision': int(vision), 'frames': len(fr), 'transcript': transcript, 'note': note,
+                                    'profile': profile, 'vision': int(vision), 'frames': len(fr), 'transcript': transcript, 'note': note, 'fthumbs': json.dumps(fthumbs) if fthumbs else None,
                                     'created_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             self.set(stage='完成', scanned=6, result_id=aid, matched=1); self.log(f'✅ 视频画像已生成并保存（#{aid}）{note}')
         finally:

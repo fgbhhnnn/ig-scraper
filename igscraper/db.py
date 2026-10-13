@@ -81,12 +81,14 @@ def get_videos(keys):
 def clear_comments():
     with _lock, conn() as c: c.execute('DELETE FROM comments')
 
-ACOLS = ['platform', 'url', 'account', 'caption', 'meta', 'profile', 'vision', 'frames', 'transcript', 'note', 'created_at']
+ACOLS = ['platform', 'url', 'account', 'caption', 'meta', 'profile', 'vision', 'frames', 'transcript', 'note', 'created_at', 'fthumbs']
 def init_analyses():
     with _lock, conn() as c:
         c.execute('''CREATE TABLE IF NOT EXISTS analyses(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, url TEXT, account TEXT, caption TEXT,
           meta TEXT, profile TEXT, vision INTEGER, frames INTEGER, transcript TEXT, note TEXT, created_at TEXT, product TEXT, replica TEXT)''')
-        if 'replicas' not in _cols(c, 'analyses'): c.execute('ALTER TABLE analyses ADD COLUMN replicas TEXT')
+        cols = _cols(c, 'analyses')
+        if 'replicas' not in cols: c.execute('ALTER TABLE analyses ADD COLUMN replicas TEXT')
+        if 'fthumbs' not in cols: c.execute('ALTER TABLE analyses ADD COLUMN fthumbs TEXT')
 def save_analysis(a):
     init_analyses()
     with _lock, conn() as c:

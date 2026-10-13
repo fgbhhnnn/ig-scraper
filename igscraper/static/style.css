@@ -187,3 +187,20 @@ pre.has-copy{position:relative;padding-right:64px}.pre-copy{position:absolute;to
 .tl .ts{font-variant-numeric:tabular-nums;font-size:12px;color:#2563eb;white-space:nowrap}
 .tplain{white-space:pre-wrap;margin:0}
 #a_trans.off{display:none}
+
+.ts.has-f{cursor:zoom-in;border-bottom:1px dashed #818cf8}
+#fpop{position:fixed;z-index:999;display:none;gap:8px;padding:8px;background:#0f172acc;backdrop-filter:blur(6px);border-radius:12px;box-shadow:0 10px 30px #0004;pointer-events:none}
+#fpop.show{display:flex}#fpop.pin{pointer-events:auto}
+#fpop figure{margin:0;width:156px}#fpop img{width:156px;max-height:280px;object-fit:cover;border-radius:8px;display:block}
+#fpop figcaption{color:#fff;font:600 12px ui-monospace,monospace;text-align:center;margin-top:4px}
+.hlg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.hl{border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.hl img{width:100%;aspect-ratio:9/14;object-fit:cover;display:block;cursor:zoom-in;background:#f1f5f9}
+.hl-noimg{aspect-ratio:9/14;display:flex;align-items:center;justify-content:center;color:#94a3b8;background:#f1f5f9;font-size:13px}
+.hl-b{padding:8px 10px 10px}.hl-h{display:flex;align-items:center;gap:6px;margin-bottom:4px}.hl-h b{font-size:14px}
+.hl-b p{margin:0;font-size:13px;color:#475569;line-height:1.55}
+.shot-orig{margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:8px}.shot-orig label{font-size:12px;color:#64748b}
+.so-strip{display:flex;gap:6px;margin-top:4px;overflow-x:auto}.so-strip figure{margin:0;flex:0 0 64px}.so-strip img{width:64px;height:100px;object-fit:cover;border-radius:6px;cursor:zoom-in;display:block}
+.so-strip figcaption{font:600 11px ui-monospace,monospace;color:#4338ca;text-align:center}
+#fzoom{position:fixed;inset:0;z-index:1000;background:#000c;display:none;align-items:center;justify-content:center;cursor:zoom-out}#fzoom.show{display:flex}
+#fzoom img{max-height:86vh;max-width:90vw;border-radius:10px;image-rendering:auto;min-height:60vh;object-fit:contain}
