@@ -9,8 +9,10 @@ class Task:
         self.state = {'running': False, 'stage': '空闲', 'scanned': 0, 'candidates': 0, 'matched': 0, 'skipped': 0,
                       'target': 0, 'current': '', 'logs': [], 'run_id': None, 'error': None, 'started': None, 'ended': None}
     def log(self, msg):
-        line = time.strftime('%H:%M:%S ') + str(msg)
+        line = time.strftime('%H:%M:%S ') + str(msg); m = str(msg)
         with self.lock:
+            if m.startswith(('❌', '⛔')): self.state['errors'] = self.state.get('errors', 0) + 1
+            if '429' in m or '限流' in m or '风控' in m: self.state['ratelimits'] = self.state.get('ratelimits', 0) + 1
             self.state['logs'].append(line); self.state['logs'] = self.state['logs'][-500:]
     def set(self, **kw):
         with self.lock: self.state.update(kw)
@@ -25,7 +27,8 @@ class Task:
         rid = time.strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:4]
         self.state.update({'running': True, 'stage': '准备', 'scanned': 0, 'candidates': 0, 'matched': 0, 'skipped': 0,
                            'target': int(params.get('max_videos') or 20), 'current': '', 'logs': [], 'run_id': rid,
-                           'error': None, 'started': time.time(), 'ended': None})
+                           'error': None, 'started': time.time(), 'ended': None, 'errors': 0, 'ratelimits': 0, 'comments': 0, 'searched': 0,
+                           'platform': params.get('platform', ''), 'sources': [], 'recent': [], 'cf_expr': (params.get('cf_expr') or '').strip(), 'kind': type(self).__name__})
         self.thread = threading.Thread(target=self._run, args=(cfg, params, rid), daemon=True); self.thread.start()
         return rid
 
@@ -131,15 +134,20 @@ class Task:
         PN = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}[plat]
         CN = {'video': '视频', 'post': '帖子', 'both': '视频+帖子'}[ctype]
         local = set()
+        self.set(sources=[{'src': ('#' if k == 'tag' else '') + x, 'found': 0, 'checked': 0, 'kept': 0, 'state': 'wait'} for k, x in srcs])
         if cf: self.log(f'按评论内容筛选：{cf_expr}（每条视频最多读 {cf_pages} 页评论，至少 {cf_min} 条命中才保留）')
         self.log(f'开始：{PN} · {CN} · {len(srcs)} 个搜索源，目标 {target} 条{"评论命中筛选" if cf else "有提问"}的内容')
         try:
-            for kind, s in srcs:
+            for si, (kind, s) in enumerate(srcs):
                 if self._stop or self.state['matched'] >= target: break
+                for x in self.state['sources']:
+                    if x['state'] == 'run': x['state'] = 'done'
+                SR = self.state['sources'][si]; SR['state'] = 'run'
                 self.set(stage=f'{PN} 搜索 {"关键词 " if kind=="kw" else "标签 #"}{s}')
                 for v in gen(kind, s):
                     if self._stop or self.state['matched'] >= target: break
                     code = v['shortcode']
+                    with self.lock: self.state['searched'] += 1; SR['found'] += 1
                     if not code or code in local: continue
                     local.add(code)
                     if not want(v) or v['comment_count'] < max(1, min_c): continue
@@ -161,7 +169,7 @@ class Task:
                     if self._stop and not cs: break
                     q = [c for c in cs if m.is_q(c['text'], c['user'], v['account'])]
                     hits = cf_hits(cf, cs, v, plat) if cf else []
-                    with self.lock: self.state['scanned'] += 1
+                    with self.lock: self.state['scanned'] += 1; self.state['comments'] += len(cs); SR['checked'] += 1
                     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     db.mark_seen(plat, code, len(q), now)
                     if plat == 'facebook' and min_p and v.get('plays_known') and (v['plays'] or 0) < min_p:
@@ -176,9 +184,13 @@ class Task:
                              sample_questions=' || '.join(f"@{c['user']}: {c['text'][:150]}" for c in q[:3]),
                              caption=(v['caption'] or '')[:300].replace('\n', ' '))
                     db.upsert(v)
-                    with self.lock: self.state['matched'] += 1
+                    with self.lock:
+                        self.state['matched'] += 1; SR['kept'] += 1
+                        self.state['recent'] = ([{k: v.get(k) for k in ('platform', 'account', 'url', 'plays', 'likes', 'comment_count', 'question_count', 'cf_count', 'cover', 'caption', 'publish_date', 'shortcode')}] + self.state['recent'])[:12]
                     self.log(f'✅ [{PN}/{"视频" if v["content_type"]=="video" else "帖子"}] {v["account"]} ' + (f'评论命中 {len(hits)} 条（共读 {len(cs)} 条）' if cf else f'提问 {len(q)} 条') + f' · {v["url"]}' + (f' · 已检查 {self.state["scanned"]} / 保留 {self.state["matched"]}' if cf else ''))
         finally:
+            for x in self.state.get('sources') or []:
+                if x['state'] == 'run': x['state'] = 'stop' if self._stop else 'done'
             done()
         self.log(f'结束：{"保留" if cf else "匹配"} {self.state["matched"]} 条，检查 {self.state["scanned"]} 条，跳过已有 {self.state["skipped"]} 条')
 

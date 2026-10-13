@@ -95,11 +95,19 @@ MOQ
 <div><table class="ht"><tr><th>语言代码</th><th>中文名</th></tr><tr><td><code>en</code></td><td>英语</td></tr><tr><td><code>es</code></td><td>西班牙语</td></tr><tr><td><code>pt</code></td><td>葡萄牙语</td></tr><tr><td><code>fr</code></td><td>法语</td></tr><tr><td><code>de</code></td><td>德语</td></tr><tr><td><code>it</code></td><td>意大利语</td></tr><tr><td><code>ru</code></td><td>俄语</td></tr><tr><td><code>ar</code></td><td>阿拉伯语</td></tr><tr><td><code>tr</code></td><td>土耳其语</td></tr><tr><td><code>id</code></td><td>印尼语</td></tr><tr><td><code>ms</code></td><td>马来语</td></tr><tr><td><code>vi</code></td><td>越南语</td></tr><tr><td><code>th</code></td><td>泰语</td></tr><tr><td><code>hi</code></td><td>印地语</td></tr><tr><td><code>tl</code></td><td>菲律宾语</td></tr><tr><td><code>zh</code></td><td>中文</td></tr><tr><td><code>ja</code></td><td>日语</td></tr><tr><td><code>ko</code></td><td>韩语</td></tr><tr><td><code>pl</code></td><td>波兰语</td></tr><tr><td><code>nl</code></td><td>荷兰语</td></tr><tr><td><code>unknown</code></td><td>未知（太短/表情）</td></tr></table></div></div></details></div>
 <div class="row"><button class="big" onclick="startTask()">▶ 开始抓取</button><span id="tmsg"></span></div>
 </section>
-<section id="p-run" hidden><h2>运行进度</h2>
-<div class="stats"><div><i>阶段</i><b id="r_stage">-</b></div><div><i>有提问内容</i><b id="r_matched">0</b></div><div><i>已检查评论区</i><b id="r_scanned">0</b></div><div><i>跳过已有</i><b id="r_skipped">0</b></div></div>
-<div class="bar"><div id="r_bar"></div></div><p class="hint">当前：<a id="r_cur" target="_blank"></a></p>
-<div class="row"><button class="danger" onclick="stopTask()">■ 停止</button><button class="ghost" onclick="show('results')">查看结果</button></div>
-<pre id="r_log"></pre></section>
+<section id="p-run" hidden class="run-page">
+<div class="rh"><div class="rh-l"><span id="rp_plat" class="badge">-</span><div class="rh-t"><h2 id="rp_title">任务进度</h2><div class="rh-kw" id="rp_kw"></div></div></div>
+<div class="rh-r"><span id="rp_state" class="state idle">空闲</span><div class="rh-time"><span>开始 <b id="rp_start">-</b></span><span>用时 <b id="rp_elapsed">-</b></span><span id="rp_eta_w">预计剩余 <b id="rp_eta">-</b></span></div>
+<button class="danger" id="rp_stop" onclick="stopTask()">■ 停止</button><button class="ghost" onclick="show('results')">查看结果 →</button></div></div>
+<div class="rprog"><div class="rprog-h"><b id="rp_stage">-</b><span><b id="rp_kept">0</b> / <span id="rp_target">0</span> <span id="rp_keptlbl">已保存</span></span></div><div class="rbar"><div id="r_bar"></div></div>
+<div class="rcur hint">当前：<a id="r_cur" target="_blank"></a></div></div>
+<div class="tiles" id="rp_tiles"></div>
+<div class="run-grid"><div class="rcol">
+<div class="rcard" id="rp_srcw"><div class="rcard-h"><b>🔎 搜索词进度</b><span class="hint" id="rp_srcn"></span></div><div id="rp_srcs" class="srcs"></div></div>
+<div class="rcard"><div class="rcard-h"><b>⭐ 最新保存</b><a class="hint" onclick="show('results')" style="cursor:pointer">全部结果 →</a></div><div id="rp_recent" class="recent"><p class="hint">还没有保存的内容</p></div></div></div>
+<div class="rcard logcard"><div class="rcard-h"><b>📜 运行日志</b><div class="logtools"><div class="seg" id="lg_f"><button class="on" data-l="all">全部</button><button data-l="ok">成功</button><button data-l="skip">跳过</button><button data-l="warn">警告</button><button data-l="err">错误</button></div>
+<label class="cb sm"><input type="checkbox" id="lg_auto" checked>自动滚动</label><button class="ghost sm" onclick="logCopy()">复制</button><button class="ghost sm" onclick="logClear()">清屏</button></div></div><div id="r_log" class="logv"></div></div></div>
+</section>
 <section id="p-results" hidden><h2>结果（本地数据库）</h2>
 <div class="row"><label>平台<select id="f_platform" onchange="loadResults()"><option value="">全部</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
 <label>类型<select id="f_ctype" onchange="loadResults()"><option value="">全部</option><option value="video">视频</option><option value="post">帖子</option></select></label></div>

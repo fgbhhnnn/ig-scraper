@@ -4,7 +4,7 @@ const lines=id=>$(id).value.split(/\n/).map(s=>s.trim()).filter(Boolean);
 const words=id=>$(id).value.split(/[,，\n]/).map(s=>s.trim()).filter(Boolean);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function msg(id,t,ok){$(id).textContent=t;$(id).className=ok?'ok':'err'}
-function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();if(p==='comments'){cLoad();cPoll()}if(p==='ai'){aList();aPoll()}localStorage.page=p}
+function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();if(p==='run')poll();if(p==='comments'){cLoad();cPoll()}if(p==='ai'){aList();aPoll()}localStorage.page=p}
 document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.p));
 const PK={instagram:['ckstat','IG: '],facebook:['fbstat','FB: '],tiktok:['ttstat','TT: ']};
 function ckPill(p,ok,t){const e=$(PK[p][0]);e.textContent=PK[p][1]+t;e.className='pill '+(ok?'ok':'bad')}
@@ -30,15 +30,37 @@ function params(){FKEYS.forEach(k=>localStorage['f_'+k]=$(k).value);['skip_exist
  date_from:$('date_from').value,date_to:$('date_to').value,must_words:words('must_words'),exclude_words:words('exclude_words'),keywords:lines('keywords'),hashtags:lines('hashtags'),comment_phrases:lines('phrases'),
  cf_expr:$('cf_expr').value.trim(),cf_min:+$('cf_min').value||1,cf_pages:+$('cf_pages').value||5,skip_existing:$('skip_existing').checked,use_default_rules:$('use_default_rules').checked,question_mark:$('question_mark').checked}}
 function restore(){FKEYS.forEach(k=>{if(localStorage['f_'+k]!==undefined)$(k).value=localStorage['f_'+k]});['skip_existing','use_default_rules','question_mark','fb_fetch_views'].forEach(k=>{if(localStorage['f_'+k]!==undefined)$(k).checked=localStorage['f_'+k]==='1'})}
-async function startTask(){const d=await api('/api/task/start',params());if(!d.ok)return msg('tmsg',d.error);logN=0;$('r_log').textContent='';lastRun=d.run_id;show('run');poll()}
+async function startTask(){const d=await api('/api/task/start',params());if(!d.ok)return msg('tmsg',d.error);logN=0;LOGS=[];$('r_log').innerHTML='';lastRun=d.run_id;show('run');poll()}
 async function stopTask(){await api('/api/task/stop',{})}
 let logN=0,timer=null,lastRun=null;
-async function poll(){clearTimeout(timer);const s=await api('/api/task/status?since='+logN);
- if(s.log_total<logN){logN=0;$('r_log').textContent=''}
- $('r_stage').textContent=s.stage;$('r_matched').textContent=s.matched+' / '+s.target;$('r_scanned').textContent=s.scanned;$('r_skipped').textContent=s.skipped;
- $('r_bar').style.width=Math.min(100,s.target?s.matched/s.target*100:0)+'%';$('r_cur').textContent=s.current;$('r_cur').href=s.current||'#';
- if(s.logs.length){$('r_log').textContent+=s.logs.join('\n')+'\n';$('r_log').scrollTop=1e9}logN=s.log_total;if(s.run_id)lastRun=s.run_id;
- if(s.running)timer=setTimeout(poll,1500)}
+let LOGS=[],LGF='all';
+function lvl(t){if(/❌|⛔|出错|失败/.test(t))return'err';if(/429|限流|风控|⚠️|等待/.test(t))return'warn';if(/✅/.test(t))return'ok';if(/^— |跳过|不足|无提问/.test(t))return'skip';if(/开始|结束|已登录|搜索/.test(t))return'step';return'info'}
+const LIC={err:'✖',warn:'⚠',ok:'✔',skip:'·',step:'▸',info:'•'};
+function logLine(l){const m=l.match(/^(\d\d:\d\d:\d\d) ([\s\S]*)$/)||[0,'',l];const lv=lvl(m[2]);let t=esc(m[2].replace(/^(✅|❌|⛔|⚠️|— )\s*/,'')).replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank">$1</a>');return`<div class="lg ${lv}" data-l="${lv}"><span class="lt">${m[1]}</span><span class="li">${LIC[lv]}</span><span class="lm">${t}</span></div>`}
+function logRender(add){const box=$('r_log');const f=x=>LGF==='all'||lvl(x)===LGF||(LGF==='warn'&&lvl(x)==='warn');
+ if(add)box.insertAdjacentHTML('beforeend',add.filter(f).map(logLine).join(''));else box.innerHTML=LOGS.filter(f).map(logLine).join('')||'<p class="hint">暂无日志</p>';if($('lg_auto').checked)box.scrollTop=1e9}
+document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('#lg_f button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#lg_f button').forEach(x=>x.classList.toggle('on',x===b));LGF=b.dataset.l;logRender()})});
+function logCopy(){cp(LOGS.join('\n'))}function logClear(){$('r_log').innerHTML='';LOGS=[]}
+const fmtT=s=>{s=Math.max(0,Math.round(s));return s>=3600?Math.floor(s/3600)+'时'+Math.floor(s%3600/60)+'分':s>=60?Math.floor(s/60)+'分'+String(s%60).padStart(2,'0')+'秒':s+'秒'};
+let runS=null;
+async function poll(){clearTimeout(timer);const s=await api('/api/task/status?since='+logN);runS=s;
+ if(s.log_total<logN){logN=0;LOGS=[];$('r_log').innerHTML=''}
+ if(s.logs.length){if(!LOGS.length&&logN===0)$('r_log').innerHTML='';LOGS.push(...s.logs);logRender(s.logs)}else if(!LOGS.length)$('r_log').innerHTML='<p class="hint">暂无日志</p>';logN=s.log_total;if(s.run_id)lastRun=s.run_id;
+ runRender(s);if(s.running)timer=setTimeout(poll,1500)}
+function runRender(s){const P=s.platform;$('rp_plat').textContent=PN[P]||'—';$('rp_plat').className='badge '+(P||'');
+ const srcs=s.sources||[];$('rp_title').textContent=s.run_id?(s.cf_expr?'按评论筛选抓取':'同行内容抓取'):'还没有运行任务';$('rp_kw').innerHTML=srcs.slice(0,6).map(x=>`<span class="kwc">${esc(x.src)}</span>`).join('')+(srcs.length>6?`<span class="hint">等 ${srcs.length} 个</span>`:'');
+ const st=s.running?'run':!s.run_id?'idle':s.error?'err':s.stage==='已停止'?'stop':'done';$('rp_state').className='state '+st;$('rp_state').textContent={run:'● 运行中',idle:'空闲',err:'出错',stop:'已停止',done:'✓ 已完成'}[st];$('rp_stop').hidden=!s.running;
+ const el=s.started?((s.ended||Date.now()/1000)-s.started):0;$('rp_start').textContent=s.started?new Date(s.started*1000).toTimeString().slice(0,5):'-';$('rp_elapsed').textContent=s.started?fmtT(el):'-';
+ const pr=s.target?Math.min(1,s.matched/s.target):0;$('rp_eta_w').hidden=!(s.running&&s.matched>0&&pr<1);if(s.running&&s.matched>0)$('rp_eta').textContent='约 '+fmtT(el/pr*(1-pr));
+ $('rp_stage').textContent=s.stage;$('rp_kept').textContent=s.matched;$('rp_target').textContent=s.target;$('rp_keptlbl').textContent=s.cf_expr?'条已保留（评论命中）':'条已保存（有提问）';
+ $('r_bar').style.width=(pr*100)+'%';$('r_bar').className=st==='run'?'live':st==='err'?'bad':'';$('r_cur').textContent=s.current||'-';$('r_cur').href=s.current||'#';
+ const T=[['🔎','搜到内容',s.searched||0,''],['🧐',s.cf_expr?'已检查（读评论）':'已检查评论区',s.scanned,''],[ '💾',s.cf_expr?'保留（命中）':'已保存',s.matched,'ok'],['⏭','跳过已有',s.skipped,''],['💬','读取评论',s.comments||0,''],['⚠','错误 / 限流',`${s.errors||0} / ${s.ratelimits||0}`,(s.errors||s.ratelimits)?'bad':'']];
+ if(s.cf_expr)T.push(['🎯','命中率',s.scanned?Math.round(s.matched/s.scanned*100)+'%':'-','']);
+ $('rp_tiles').innerHTML=T.map(t=>`<div class="tile ${t[3]}"><span class="ti">${t[0]}</span><div><b>${typeof t[2]==='number'?t[2].toLocaleString():esc(t[2])}</b><i>${t[1]}</i></div></div>`).join('');
+ $('rp_srcw').hidden=!srcs.length;$('rp_srcn').textContent=srcs.length?`${srcs.filter(x=>x.state==='done').length}/${srcs.length} 完成`:'';const mk=Math.max(1,...srcs.map(x=>x.checked));
+ $('rp_srcs').innerHTML=srcs.map(x=>`<div class="src ${x.state}"><span class="sd"></span><span class="sn" title="${esc(x.src)}">${esc(x.src)}</span><div class="sbar"><i style="width:${x.checked/mk*100}%"></i><b style="width:${x.kept/mk*100}%"></b></div><span class="sv">${x.kept}<small>/${x.checked} · 搜到 ${x.found}</small></span></div>`).join('');
+ const R=s.recent||[];$('rp_recent').innerHTML=R.length?R.map(v=>`<a class="rc" href="${esc(v.url)}" target="_blank"><div class="rct">${v.cover?`<img src="${esc(v.cover)}" referrerpolicy="no-referrer" onerror="this.remove()">`:''}<span>${v.platform==='tiktok'?'♪':'▶'}</span></div><div class="rcb"><b>@${esc(v.account)}</b><div class="hint">${esc((v.caption||'').slice(0,40))}</div><div class="rcs"><span>▶ ${fmtN(v.plays)}</span><span>♥ ${fmtN(v.likes)}</span><span>💬 ${fmtN(v.comment_count)}</span><span class="hit">${v.cf_count!=null?'命中 '+v.cf_count:'提问 '+(v.question_count||0)}</span></div></div></a>`).join(''):'<p class="hint">还没有保存的内容</p>'}
+setInterval(()=>{if(runS&&runS.running&&!$('p-run').hidden)runRender(runS)},1000);
 const SEL=new Set();let R=[],sk='question_count',sd=-1;
 async function loadResults(){const p=new URLSearchParams({platform:$('f_platform').value,content_type:$('f_ctype').value});if($('only_run').checked&&lastRun)p.set('run_id',lastRun);R=await api('/api/results?'+p);renderResults()}
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sd=sk===k?-sd:-1;sk=k;renderResults()});

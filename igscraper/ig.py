@@ -78,7 +78,7 @@ class IG:
                 'likes': i.get('like_count') or 0, 'comment_count': i.get('comment_count') or 0,
                 'taken_at': i.get('taken_at') or 0,
                 'publish_date': datetime.datetime.fromtimestamp(i['taken_at']).strftime('%Y-%m-%d') if i.get('taken_at') else '',
-                'source': source, 'is_video': i.get('media_type') == 2,
+                'source': source, 'cover': (((i.get('image_versions2') or {}).get('candidates') or [{}])[-1]).get('url', ''), 'is_video': i.get('media_type') == 2,
                 'platform': 'instagram', 'content_type': 'video' if i.get('media_type') == 2 else 'post', 'plays_known': True}
 
     def keyword_media(self, kw, max_pages=5):

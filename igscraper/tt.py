@@ -167,7 +167,7 @@ class TT:
                 'caption': i.get('desc') or '', 'plays': n(st.get('playCount')), 'likes': n(st.get('diggCount')),
                 'comment_count': n(st.get('commentCount')), 'shares': n(st.get('shareCount')), 'taken_at': ct,
                 'publish_date': datetime.datetime.fromtimestamp(ct).strftime('%Y-%m-%d') if ct else '',
-                'source': source, 'is_video': True, 'content_type': 'video', 'plays_known': True}
+                'source': source, 'cover': (i.get('video') or {}).get('cover') or (i.get('video') or {}).get('originCover') or '', 'is_video': True, 'content_type': 'video', 'plays_known': True}
 
     def search(self, kw, max_pages=3, source=None):
         ref = 'https://www.tiktok.com/search?q=' + urllib.parse.quote(kw)
