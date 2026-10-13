@@ -11,20 +11,67 @@ def _h(key): return {'Authorization': f'Bearer {key}'}
 
 class AIError(RuntimeError):
     def __init__(self, msg, status=0, body=''): super().__init__(msg); self.status = status; self.body = body
+    def __repr__(self): return 'AI 接口错误：' + str(self)
 
-def chat(base, key, model, content, system=None, max_tokens=None, timeout=600):
+RETRY_SLOW = (408, 502, 503, 504, 520, 522, 524)
+def clean_err(status, text):
+    t = (text or '').strip()
+    if '<html' in t[:500].lower() or '<!doctype' in t[:200].lower():
+        m = re.search(r'<title>(.*?)</title>', t, re.S | re.I)
+        hint = {524: '接口处理超时（Cloudflare 524，通常是一次发的图太多/太慢）', 504: '网关超时', 502: '网关错误', 522: '连接超时', 520: '上游返回异常'}.get(status, '')
+        return f"HTTP {status}{'：' + hint if hint else ''}" + (f"（{re.sub(r'\s+', ' ', m.group(1)).strip()[:80]}）" if m else '')
+    try:
+        j = json.loads(t); e = j.get('error') or j
+        t = e.get('message') if isinstance(e, dict) else str(e)
+    except Exception: pass
+    return f'HTTP {status}: {str(t)[:300]}'
+
+def _post_chat(base, key, body, stream, timeout):
+    url = base.rstrip('/') + '/chat/completions'
+    if not stream:
+        r = requests.post(url, headers=_h(key), json=body, timeout=timeout)
+        if r.status_code != 200: raise AIError(clean_err(r.status_code, r.text), r.status_code, r.text[:2000])
+        try: return r.json()['choices'][0]['message']['content'] or ''
+        except Exception: raise AIError(f'接口返回格式不对: {r.text[:200]}')
+    # 流式：边生成边返回，连接不会因长时间无数据被 Cloudflare 断开（100 秒 524）
+    with requests.post(url, headers=_h(key), json=dict(body, stream=True), timeout=(30, timeout), stream=True) as r:
+        if r.status_code != 200: raise AIError(clean_err(r.status_code, r.text), r.status_code, r.text[:2000])
+        ct = r.headers.get('content-type', '')
+        if 'event-stream' not in ct:
+            t = r.text
+            try: return json.loads(t)['choices'][0]['message']['content'] or ''
+            except Exception: raise AIError(f'接口返回格式不对: {t[:200]}')
+        out = []
+        for line in r.iter_lines(decode_unicode=False):
+            if not line: continue
+            line = line.decode('utf-8', 'ignore')
+            if not line.startswith('data:'): continue
+            d = line[5:].strip()
+            if d == '[DONE]': break
+            try: j = json.loads(d)
+            except Exception: continue
+            if j.get('error'): raise AIError(clean_err(400, json.dumps(j)), 400, d)
+            for ch in j.get('choices') or []:
+                c = (ch.get('delta') or {}).get('content') or (ch.get('message') or {}).get('content')
+                if c: out.append(c)
+        return ''.join(out)
+
+STREAM = {'ok': True}
+def chat(base, key, model, content, system=None, max_tokens=None, timeout=900, retries=3):
     msgs = ([{'role': 'system', 'content': system}] if system else []) + [{'role': 'user', 'content': content}]
     body = {'model': model, 'messages': msgs, 'temperature': 0.6}
     if max_tokens: body['max_tokens'] = max_tokens
-    for t in range(3):
-        try: r = requests.post(base.rstrip('/') + '/chat/completions', headers=_h(key), json=body, timeout=timeout)
+    for t in range(retries):
+        try: return _post_chat(base, key, body, STREAM['ok'], timeout)
         except requests.RequestException as e:
-            if t == 2: raise AIError(f'网络错误: {e}')
-            time.sleep(5); continue
-        if r.status_code in (429, 500, 502, 503, 504) and t < 2: time.sleep(15 * (t + 1)); continue
-        if r.status_code != 200: raise AIError(f'HTTP {r.status_code}: {r.text[:300]}', r.status_code, r.text[:2000])
-        try: return r.json()['choices'][0]['message']['content'] or ''
-        except Exception: raise AIError(f'接口返回格式不对: {r.text[:300]}')
+            if t == retries - 1: raise AIError(f'网络错误/超时: {str(e)[:150]}', 524 if isinstance(e, requests.Timeout) else 0)
+            time.sleep(5)
+        except AIError as e:
+            if STREAM['ok'] and e.status in (400, 404, 422) and 'stream' in (e.body or '').lower():
+                STREAM['ok'] = False; continue          # 接口不支持流式 → 改普通请求
+            if e.status == 429 and t < retries - 1: time.sleep(20 * (t + 1)); continue
+            if e.status in (500, 503) and t < retries - 1: time.sleep(10); continue
+            raise
 
 def img_part(path_or_bytes, mime='image/jpeg'):
     b = path_or_bytes if isinstance(path_or_bytes, bytes) else open(path_or_bytes, 'rb').read()
@@ -59,22 +106,28 @@ def transcribe(base, key, model, path):
 
 def _too_many(e):
     b = (str(e) + ' ' + getattr(e, 'body', '')).lower()
+    if getattr(e, 'status', 0) in RETRY_SLOW or '超时' in str(e): return True
     return getattr(e, 'status', 0) in (400, 413, 422) and any(k in b for k in ('image', 'too many', 'too large', 'payload', 'limit', 'maximum', 'exceed', 'context', 'token'))
 def _no_vision(e):
     b = (str(e) + ' ' + getattr(e, 'body', '')).lower()
     return getattr(e, 'status', 0) in (400, 404, 415, 422) and any(k in b for k in ('image', 'vision', 'multimodal', 'image_url', 'not support', 'unsupported', 'invalid content'))
 
 SYS = '你是资深短视频操盘手和外贸社媒营销专家，擅长拆解 TikTok / Instagram Reels / Facebook 爆款视频。全部用简体中文回答，结构清晰，用 Markdown。'
-PROFILE_SPEC = """请输出「视频画像」，Markdown 格式，必须包含以下二级标题（## 开头），每一节都要具体、可执行，尽量引用画面时间点(如 0.5s、4s)和评论原话：
-## 一、前 3 秒钩子
-## 二、结构与节奏（按时间分段：时间段 / 画面内容 / 作用）
-## 三、视觉风格（景别、运镜、光线、色调、字幕/贴纸、剪辑节奏）
-## 四、核心卖点
-## 五、目标人群
+PROFILE_SPEC = """请输出「视频画像」，Markdown 格式，必须包含以下二级标题（## 开头）。
+硬性要求：
+- 必须基于上面给出的真实画面和评论，禁止空话套话（如“画面精美”“吸引眼球”“节奏紧凑”这种不带细节的话不要写）。
+- 画面相关的每个判断都要标注时间点（如 0.25s、4s），并写出看到的具体东西：人物/手部动作、产品是什么样、背景场景、屏幕上的文字原文、转场方式。
+- 评论相关的判断要引用评论原话（保留原语言，后面括号附中文意思），并给出大致数量或占比。
+- 画面里看不清或没有的信息，直接写“画面中未体现”，不要编造。
+## 一、前 3 秒钩子（逐个时间点描述 0~3s 的画面，说明到底靠什么留住人）
+## 二、结构与节奏（表格：时间段 | 画面内容 | 屏幕文字/口播 | 作用）
+## 三、视觉风格（景别、运镜、光线、色调、字幕/贴纸样式、剪辑频率：平均几秒一个镜头）
+## 四、核心卖点（画面/文案里实际展示了哪些卖点，分别在第几秒）
+## 五、目标人群（结合评论者的提问内容和语言推断：B 端买家/批发商/C 端消费者，哪些国家地区）
 ## 六、情绪触发点
-## 七、评论区的问题与顾虑（归类并估计占比，列出代表性原话）
-## 八、为什么能成为爆款（总结 3~6 条关键原因）
-## 九、可复用的爆款公式（一句话概括）"""
+## 七、评论区的问题与顾虑（按类别归纳，每类给：数量/占比、2~3 条原话、视频里有没有回答）
+## 八、为什么能成为爆款（3~6 条，每条都要对应上面的具体证据）
+## 九、可复用的爆款公式（一句话概括 + 可直接套用的模板）"""
 
 def meta_text(M, comments, transcript):
     tags = ' '.join('#' + t for t in M.get('tags') or [])
@@ -88,19 +141,29 @@ def meta_text(M, comments, transcript):
     return '\n'.join(s)
 
 def replicate_prompt(profile, product, M):
-    return f"""下面是一条爆款视频的「视频画像」（平台：{M.get('platform')}，原时长约 {M.get('duration', 0):.0f} 秒）：
+    qs = '\n'.join(f"- {c['user']}: {c['text'][:200]}" for c in (M.get('top_comments') or [])[:30])
+    return f"""下面是一条爆款视频的「视频画像」（平台：{M.get('platform')}，原时长约 {M.get('duration', 0):.0f} 秒，播放 {M.get('plays') or '未知'}）：
 
 {profile}
+
+原视频评论区的高频提问（原话）：
+{qs or '(无)'}
 
 我的产品/需求信息：
 {product or '(未填写，请按同类产品通用写法，并在需要我替换的地方用【】标出)'}
 
-请基于这个画像为我的产品「一键复刻」一条新视频。要求：模仿它的结构、节奏、钩子思路和情绪设计，但文案、台词、画面必须全部原创，不能照抄原视频的原话或标志性内容；评论区里的问题要在视频里提前解答。输出 Markdown，包含以下二级标题：
-## 一、分镜脚本（表格：镜号 | 时长 | 画面/拍摄方式 | 口播/字幕 | 备注）
-## 二、发布文案（给 2 个版本，按目标平台常用语言写，附中文翻译）
-## 三、话题标签（15~25 个，热门+精准+长尾）
-## 四、封面与标题建议（3 个方案）
-## 五、发布建议（发布时间、置顶评论、评论区引导回复话术、注意事项）"""
+请基于这个画像为我的产品「一键复刻」一条新视频。要求：
+1. 复刻的是结构、节奏、钩子思路和情绪设计；文案、台词、画面必须全部原创，不得照抄原视频的原话、字幕或标志性画面。
+2. 总时长与原视频接近；分镜数量与节奏参照画像里的「结构与节奏」，每个镜头在备注里写明对应原视频的哪一段（如“对应原 0~3s 钩子”）。
+3. 前 3 秒要有同等强度的钩子，写清楚具体拍什么、怎么动、屏幕上打什么字。
+4. 把上面评论区最常见的 3~5 个问题（价格、起订量、定制、发货等）提前在视频画面/字幕或文案里回答或引导私信，不要编造我没给的具体数字，用【】留空。
+5. 拍摄要求要具体到普通工厂/个人能执行（机位、景别、道具、手部动作），不要写空泛的形容词。
+输出 Markdown，包含以下二级标题：
+## 一、分镜脚本（表格：镜号 | 时长 | 画面/拍摄方式 | 口播/字幕（目标平台语言 + 中文） | 备注/对应原视频）
+## 二、发布文案（2 个版本，按目标平台常用语言写，附中文翻译）
+## 三、话题标签（15~25 个，分热门/精准/长尾三组）
+## 四、封面与标题建议（3 个方案，写清封面画面和封面大字）
+## 五、发布建议（发布时间、置顶评论、评论区常见问题的回复话术、注意事项）"""
 
 # ---------------- 抓取 ----------------
 def _num(x):
@@ -199,6 +262,7 @@ def fetch_comments(pl, c, M, pages, max_c):
     return out
 
 # ---------------- 任务 ----------------
+BATCH = {}   # 本次运行中 (接口, 模型) 成功过的每批图片数，后续直接用
 class AnalyzeTask(Task):
     def _crawl(self, cfg, P, rid):
         b, k, model = cfg['ai_base'], cfg['ai_key'], cfg['ai_model']
@@ -245,7 +309,7 @@ class AnalyzeTask(Task):
             self.set(stage='⑤ AI 分析中（可能需要几分钟）', scanned=4)
             profile, vision, note = self.ai_profile(b, k, model, M, cs, transcript, fr, cap, cfg.get('ai_vision', ''))
             M.pop('_item', None)
-            aid = db.save_analysis({'platform': pl, 'url': M['url'], 'account': M['account'], 'caption': M['caption'], 'meta': json.dumps(dict(M, frames=len(fr), comment_n=len(cs), question_n=nq), ensure_ascii=False),
+            aid = db.save_analysis({'platform': pl, 'url': M['url'], 'account': M['account'], 'caption': M['caption'], 'meta': json.dumps(dict(M, frames=len(fr), comment_n=len(cs), question_n=nq, top_comments=[c for c in cs if c['q']][:30]), ensure_ascii=False),
                                     'profile': profile, 'vision': int(vision), 'frames': len(fr), 'transcript': transcript, 'note': note,
                                     'created_at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
             self.set(stage='完成', scanned=6, result_id=aid, matched=1); self.log(f'✅ 视频画像已生成并保存（#{aid}）{note}')
@@ -264,14 +328,15 @@ class AnalyzeTask(Task):
             p = [{'type': 'text', 'text': intro}]
             for t, path in sub: p += [{'type': 'text', 'text': f'[{t:.2f}s]'}, img_part(path)]
             return p
-        size = cap if cap > 0 else len(fr)
+        bk = (b, model); size = cap if cap > 0 else min(len(fr), BATCH.get(bk, len(fr)))
         while True:
             batches = [fr[i:i + size] for i in range(0, len(fr), size)]
             try:
                 if len(batches) == 1:
                     self.log(f'发送 {len(fr)} 张截图给 AI（一次请求）')
+                    t0 = time.time()
                     out = chat(b, k, model, parts(fr, f'下面是视频按时间顺序截取的全部 {len(fr)} 张画面，每张前标了时间点。\n\n{text}\n\n') + [{'type': 'text', 'text': PROFILE_SPEC}], SYS)
-                    return out, True, ''
+                    self.log(f'AI 返回，用时 {time.time()-t0:.0f}s'); return out, True, ''
                 self.log(f'共 {len(fr)} 张截图，分 {len(batches)} 批（每批最多 {size} 张）依次发送，最后汇总，不丢帧')
                 notes = []
                 for i, bt in enumerate(batches, 1):
@@ -279,13 +344,16 @@ class AnalyzeTask(Task):
                     self.set(stage=f'⑤ AI 看图 第 {i}/{len(batches)} 批')
                     intro = (f'这是一条短视频的第 {i}/{len(batches)} 批画面（{bt[0][0]:.1f}s ~ {bt[-1][0]:.1f}s，共 {len(bt)} 张，每张前标了时间点）。视频文案：{M.get("caption","")[:300]}\n'
                              '请逐个时间点详细描述：画面内容、人物动作、产品展示方式、景别/运镜、屏幕文字/字幕原文、转场。只描述，不要总结。')
+                    t0 = time.time()
                     notes.append(f'### 第 {i} 批 {bt[0][0]:.1f}s~{bt[-1][0]:.1f}s\n' + chat(b, k, model, parts(bt, intro), SYS))
+                    self.log(f'  第 {i} 批 {len(bt)} 张完成，用时 {time.time()-t0:.0f}s')
+                BATCH[bk] = size
                 self.set(stage='⑤ AI 汇总生成视频画像')
                 out = chat(b, k, model, f'以下是对整条视频全部画面的逐时间点描述（分批看图得到）：\n\n' + '\n\n'.join(notes) + f'\n\n{text}\n\n{PROFILE_SPEC}', SYS)
                 return out, True, f'（{len(fr)} 张截图分 {len(batches)} 批发送后汇总）'
             except AIError as e:
                 if _too_many(e) and size > 1:
-                    size = max(1, math.ceil(size / 2)); self.log(f'接口拒绝一次发这么多图（{str(e)[:120]}），自动改为每批 {size} 张重试'); continue
+                    size = max(1, math.ceil(size / 2)); self.log(f'接口拒绝或超时（{str(e)[:120]}），自动改为每批 {size} 张重试（不丢帧）'); continue
                 if vmode != '1' and _no_vision(e): return text_only(f'模型不支持识图（{str(e)[:120]}）')
                 raise
 
