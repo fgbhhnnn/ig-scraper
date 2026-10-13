@@ -9,6 +9,11 @@ DOC_FALLBACK = {'SearchCometResultsPaginatedResultsQuery': '29179353588360939',
                 'CommentsListComponentsPaginationQuery': '40120064807592280',
                 'CommentListComponentsRootQuery': '38863170746661819'}
 WANT_DOCS = set(DOC_FALLBACK)
+# provider variables Relay passes implicitly; server rejects the pagination query without them
+PV_FALLBACK = ['CometUFICommentAutoTranslationType', 'CometUFICommentAvatarStickerAnimatedImage',
+               'CometUFICommentActionLinksRewriteEnabled', 'IsWorkUser']
+def pv_vars(names):
+    return {f'__relay_internal__pv__{n}relayprovider': ('ORIGINAL' if n.endswith('TranslationType') else False) for n in names}
 
 def walk(o, f):
     if isinstance(o, dict):
@@ -32,7 +37,9 @@ class FB:
         self.log, self.stop, self.on_cookie = log, stop, on_cookie
         self.dmin, self.dmax = dmin, dmax
         self.s = requests.Session(); self.tok = {}; self.uid = None; self.n = 0
-        self.docs = dict(DOC_FALLBACK); self.docs.update(docs or {}); self.docs_scraped = bool(docs)
+        docs = dict(docs or {})
+        self.pv = [x for x in (docs.pop('_pv', '') or '').split(',') if x] or list(PV_FALLBACK)
+        self.docs = dict(DOC_FALLBACK); self.docs.update(docs); self.docs_scraped = bool(docs)
         for kv in parse_cookie(cookie).split(';'):
             if '=' in kv:
                 k, v = kv.strip().split('=', 1); self.s.cookies.set(k, v, domain='.facebook.com')
@@ -88,18 +95,25 @@ class FB:
                         __rev=g(r'"server_revision":(\d+)'))
         return self.uid
 
-    def scrape_docs(self, html, limit=60):
+    def export_docs(self):
+        return dict(self.docs, _pv=','.join(self.pv))
+
+    def scrape_docs(self, html, limit=120):
         """Find doc_ids for wanted queries in the page's JS bundles (best effort)."""
         if self.docs_scraped: return
         self.docs_scraped = True
         js = list(dict.fromkeys(re.findall(r'"(https://static\.xx\.fbcdn\.net/rsrc\.php/[^"]+\.js[^"]*)"', html.replace('\\/', '/'))))
-        found = {}
+        found = {}; pv_ok = False
         for j in js[:limit]:
-            if self.stop() or WANT_DOCS <= set(found): break
+            if self.stop() or (WANT_DOCS <= set(found) and pv_ok): break
             try: c = requests.get(j, headers={'User-Agent': UA}, timeout=20).text
             except Exception: continue
             for m in re.finditer(r'__d\("(\w+Query)_facebookRelayOperation".{0,200}?exports="(\d+)"', c):
                 if m.group(1) in WANT_DOCS: found[m.group(1)] = m.group(2)
+            i = c.find('__d("CommentsListComponentsPaginationQuery.graphql"')
+            if i >= 0:
+                j = c.find('__d(', i + 10); pv = sorted(set(re.findall(r'__relay_internal__pv__(\w+?)relayprovider', c[i:j if j > 0 else None])))
+                if pv: self.pv = pv; pv_ok = True; self.log(f'FB 评论翻页 provider 变量: {pv}')
         self.docs.update(found)
         self.log(f'FB doc_id：从 {min(len(js), limit)} 个 JS 包中找到 {len(found)} 个' + (f' {found}' if found else '，使用内置默认值'))
 
@@ -202,12 +216,43 @@ class FB:
             if k not in seen: seen.add(k); out.append(c)
         return out, (int(m.group(1)) if m else None), cur[0], u
 
+    @staticmethod
+    def _parse_comments(o):
+        cs, pi = [], [None]
+        def f(d):
+            if d.get('__typename') == 'Comment' and isinstance(d.get('body'), dict):
+                a = d.get('author') or {}
+                cs.append({'user': a.get('name') or '', 'uid': a.get('id') or '', 'text': (d['body'].get('text') or '').replace('\n', ' ')})
+            c = d.get('comment_rendering_instance_for_feed_location')
+            if isinstance(c, dict) and isinstance(c.get('comments'), dict) and c['comments'].get('page_info'):
+                pi[0] = c['comments']['page_info']
+        walk(o, f)
+        p = pi[0] or {}
+        return cs, (p.get('end_cursor') if p.get('has_next_page') else None)
+
     def root_comments(self, item, intent=None, ref=None):
-        """CommentListComponentsRootQuery by feedback id (works for reels where the page HTML has no comments)."""
+        """CommentListComponentsRootQuery by feedback id -> (comments, next_cursor)."""
         v = {'commentsIntentToken': intent, 'feedLocation': 'TAHOE', 'feedbackSource': 65, 'focusCommentID': None,
              'scale': 1, 'useDefaultActor': False, 'id': item['media_id']}
-        o = self.gql('CommentListComponentsRootQuery', v, ref or item['url']); cs = []
-        walk(o, lambda d: cs.append({'user': (d.get('author') or {}).get('name') or '', 'uid': (d.get('author') or {}).get('id') or '',
-                                     'text': (d['body'].get('text') or '').replace('\n', ' ')})
-             if d.get('__typename') == 'Comment' and isinstance(d.get('body'), dict) else None)
+        return self._parse_comments(self.gql('CommentListComponentsRootQuery', v, ref or item['url']))
+
+    def page_comments(self, item, cursor, ref=None, intent=None):
+        """CommentsListComponentsPaginationQuery: ~10 top-level comments per page -> (comments, next_cursor)."""
+        v = {'commentsAfterCount': -1, 'commentsAfterCursor': cursor, 'commentsBeforeCount': None, 'commentsBeforeCursor': None,
+             'commentsIntentToken': intent, 'feedLocation': 'TAHOE', 'focusCommentID': None, 'scale': 1,
+             'useDefaultActor': False, 'id': item['media_id'], **pv_vars(self.pv)}
+        o = self.gql('CommentsListComponentsPaginationQuery', v, ref or item['url'])
+        cs, nxt = self._parse_comments(o)
+        if not cs and 'missing_required_variable_value' in json.dumps(o)[:2000]:
+            self.log('FB 评论翻页失败：缺少必需变量（Facebook 可能更新了接口），本条只用首屏评论')
+        return cs, nxt
+
+    def gql_comments(self, item, max_pages=2, ref=None, until=None):
+        """Root query + up to max_pages-1 pagination pages; stops early when until(list) is True."""
+        cs, cur = self.root_comments(item, None, ref)
+        for _ in range(max(0, max_pages - 1)):
+            if not cur or self.stop() or (until and until(cs)): break
+            more, cur = self.page_comments(item, cur, ref)
+            if not more: break
+            cs += more
         return cs

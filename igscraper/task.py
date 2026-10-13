@@ -67,6 +67,7 @@ class Task:
                 for tab in tabs:
                     yield from cl.search(q, tab, int(P.get('search_pages') or 3), ('kw:' if kind == 'kw' else 'tag:#') + s)
             fetch_views = P.get('fb_fetch_views', True)
+            fb_pages = max(1, min(int(P.get('fb_comment_pages') or 2), 50))
             def comments(v):
                 own = lambda c: c['user'] == v['account'] or (c.get('uid') and c['uid'] == v.get('owner_id'))
                 hit = lambda L: any(m.is_q(c['text'], c['user'], v['account']) and not own(c) for c in L)
@@ -75,14 +76,12 @@ class Task:
                     cs, plays, _cur, ref = cl.post_page(v)
                     if plays is not None and fetch_views: v['plays'] = plays; v['plays_known'] = True
                 if not hit(cs) and v.get('media_id'):
-                    cs += cl.root_comments(v, None, ref)
-                    if pages > 1 and not hit(cs) and v['comment_count'] > len(cs):
-                        cs += cl.root_comments(v, 'RECENT_ACTIVITY_INTENT_V1', ref)
+                    cs += cl.gql_comments(v, fb_pages, ref, until=hit)
                 seen_ = set(); out = []
                 for c in cs:
                     if (c['user'], c['text']) not in seen_ and not own(c): seen_.add((c['user'], c['text'])); out.append(c)
                 return out
-            def done(): config.save({'fb_docs': {k: v for k, v in cl.docs.items()}})
+            def done(): config.save({'fb_docs': cl.export_docs()})
         else:
             if not cfg.get('cookie'): raise Blocked('请先在「Cookie」页面填写 Instagram Cookie')
             cl = IG(cfg['cookie'], float(cfg.get('delay_min', 1.5)), float(cfg.get('delay_max', 3)), self.log, stopf)
