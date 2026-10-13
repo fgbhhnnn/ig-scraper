@@ -136,7 +136,8 @@ class TT:
                 'url': f'https://www.tiktok.com/@{m.group(1)}/video/{m.group(2)}', 'caption': '', 'content_type': 'video'}
 
     def comments_full(self, item, max_pages=5, max_comments=200, replies=False, max_reply_threads=10):
-        ref = item['url']; cur = '0'; out = []; threads = []
+        ref = item['url']; cur = '0'; out = []; threads = []; pg = 0; self.partial = out
+        if max_comments >= 10**9: max_reply_threads = 10**9
         for _ in range(max_pages):
             if self.stop() or len(out) >= max_comments: break
             d = self.api('/api/comment/list/', dict(aweme_id=item['shortcode'], count='20', cursor=cur, current_region='SG',
@@ -148,15 +149,25 @@ class TT:
                             'text': (c.get('text') or '').replace('\n', ' '), 'likes': c.get('digg_count') or 0,
                             'time': c.get('create_time') or 0, 'is_reply': 0})
                 if (c.get('reply_comment_total') or 0) > 0: threads.append(str(c.get('cid')))
-            if not d.get('has_more'): break
-            cur = str(d.get('cursor'))
+            pg += 1
+            if pg % 5 == 0: self.log(f'  TikTok 已翻 {pg} 页，{len(out)} 条评论…')
+            nc = str(d.get('cursor'))
+            if not d.get('has_more') or not d.get('comments') or nc == cur: break
+            cur = nc
         if replies:
-            for cid in threads[:max_reply_threads]:
+            unlimited = max_comments >= 10**9
+            for i, cid in enumerate(threads[:max_reply_threads], 1):
                 if self.stop() or len(out) >= max_comments: break
-                d = self.api('/api/comment/list/reply/', dict(item_id=item['shortcode'], comment_id=cid, count='20', cursor='0'), ref, 'video', 'ja-JP')
-                for c in (d or {}).get('comments') or []:
-                    u = c.get('user') or {}
-                    out.append({'id': str(c.get('cid')), 'user': u.get('unique_id') or '', 'uid': u.get('uid', ''),
-                                'text': (c.get('text') or '').replace('\n', ' '), 'likes': c.get('digg_count') or 0,
-                                'time': c.get('create_time') or 0, 'is_reply': 1})
+                rc = '0'
+                for _ in range(50 if unlimited else 1):
+                    d = self.api('/api/comment/list/reply/', dict(item_id=item['shortcode'], comment_id=cid, count='20', cursor=rc), ref, 'video', 'ja-JP')
+                    for c in (d or {}).get('comments') or []:
+                        u = c.get('user') or {}
+                        out.append({'id': str(c.get('cid')), 'user': u.get('unique_id') or '', 'uid': u.get('uid', ''),
+                                    'text': (c.get('text') or '').replace('\n', ' '), 'likes': c.get('digg_count') or 0,
+                                    'time': c.get('create_time') or 0, 'is_reply': 1})
+                    nc = str((d or {}).get('cursor'))
+                    if not d or not d.get('has_more') or not d.get('comments') or nc == rc or self.stop(): break
+                    rc = nc
+                if i % 10 == 0: self.log(f'  TikTok 回复：已读 {i}/{len(threads)} 个楼，共 {len(out)} 条…')
         return out[:max_comments]

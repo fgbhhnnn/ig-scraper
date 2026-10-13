@@ -58,7 +58,7 @@ async function loadSigner(){const d=await api('/api/tt/signer');$('ttsign').text
 async function ttSigner(f){$('ttsign').textContent='安装中…';let d;if(f){const fd=new FormData();fd.append('file',f);d=await(await fetch('/api/tt/signer',{method:'POST',body:fd})).json()}else d=await api('/api/tt/signer',{});$('ttsign').textContent=d.msg;$('ttsign').className=d.ok?'ok':'err'}
 
 function selAll(v){document.querySelectorAll('.sel').forEach(c=>{c.checked=v;v?SEL.add(c.value):SEL.delete(c.value)})}
-const cParams=()=>({max_comments:+$('c_max').value||100,max_pages:+$('c_pages').value||5,replies:$('c_replies').checked,phrases:$('c_phr').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean)});
+const cParams=()=>({max_comments:+$('c_max').value||0,max_pages:+$('c_pages').value||0,replies:$('c_replies').checked,phrases:$('c_phr').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean)});
 async function cGo(b){const d=await api('/api/ctask/start',Object.assign(cParams(),b));if(!d.ok)return alert(d.error);cLogN=0;$('c_log').textContent='';cRun=d.run_id;show('comments')}
 function crawlSel(){if(!SEL.size)return alert('请先勾选要爬评论的内容');cGo({keys:[...SEL]})}
 function crawlFiltered(){if(!confirm('将爬取当前筛选条件下的全部内容的评论，确定？'))return;cGo({use_filtered:1,q:$('q').value,platform:$('f_platform').value,content_type:$('f_ctype').value})}
@@ -77,3 +77,6 @@ async function cLoad(){const d=await api('/api/comments?'+cQ());if(!d.ok){$('c_e
  $('c_tb').innerHTML=d.rows.map(r=>`<tr class="${r.matched?'m':''}"><td>${PN[r.platform]||r.platform}</td><td><a href="${esc(r.post_url)}" target="_blank">打开</a></td><td>${esc(r.account)}</td><td>${esc(r.commenter)}</td><td class="q">${esc(r.text)}</td><td>${esc(r.lang_name)}</td><td>${esc(r.region)}</td><td class="n">${r.likes}</td><td>${esc(r.ctime)}</td><td>${r.is_reply?'↳':''}</td><td>${r.matched?'✅':''}</td></tr>`).join('')}
 function cExp(f,all){const p=cQ();p.set('fmt',f);if(all)p.set('all','1');location.href='/api/comments/export?'+p}
 async function cClear(){if(confirm('确定清空评论库？')){await api('/api/comments/clear',{});cLoad()}}
+
+function platUI(){const p=$('platform').value;document.querySelectorAll('#p-task [data-plat]').forEach(e=>e.hidden=!e.dataset.plat.split(' ').includes(p))}
+document.addEventListener('DOMContentLoaded',()=>{$('platform').addEventListener('change',platUI);setTimeout(platUI,300);const h=$('c_help');if(!localStorage.getItem('c_help_seen')){h.open=true;localStorage.setItem('c_help_seen','1')}});

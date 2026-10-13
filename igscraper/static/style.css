@@ -20,3 +20,5 @@ th{background:#f9fafb;position:sticky;top:0;cursor:pointer;white-space:nowrap}td
 .tag.tt{background:#e5e7eb;color:#111}
 #addr{color:#fff;text-decoration:none;background:#4b5563}
 .help{cursor:help;font-size:13px;color:#2563eb;white-space:pre}.lb{display:flex;align-items:center;gap:8px;margin:2px 0;font-size:13px}.lb span{width:110px}.lb i{display:block;height:12px;background:#60a5fa;border-radius:3px}.lb b{font-weight:normal;color:#6b7280}tr.m td{background:#f0fdf4}
+.helpbox{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;margin:6px 0}.helpbox summary{cursor:pointer;font-weight:600}.ht{border-collapse:collapse;font-size:13px;margin:6px 0}.ht td,.ht th{border:1px solid #e5e7eb;padding:3px 8px;text-align:left}.ht code{background:#eef2ff;padding:0 4px;border-radius:3px}
+[hidden]{display:none!important}

@@ -27,3 +27,15 @@ def test_fields():
 def test_errors():
     for e in ['(price', 'price)', 'price and', 'and price', 'likes>abc', 'foo:bar', '()', 'price or or moq', 'and']:
         with pytest.raises(FilterError): parse(e)
+
+
+def test_chinese_aliases():
+    from igscraper.cfilter import compile_filter, FilterError
+    import pytest
+    c = dict(text='Precio por favor', lang='es', commenter='Juan', likes=7, is_reply=1, platform='tiktok', region='西语国家')
+    for e in ['语言:es', '语言:西班牙语', '语言：西班牙', 'lang:西班牙语', '点赞>5', '点赞数>=7', '用户:juan', '回复:1',
+              '平台:tiktok', '平台:抖音', '地区:西语', '语言:es 并且 precio', '(语言:es 或者 语言:pt) 并且 不含 scam', '语言!=英语']:
+        assert compile_filter(e)(c), e
+    for e in ['语言:en', '点赞>10', '回复:0', '平台:instagram']:
+        assert not compile_filter(e)(c), e
+    with pytest.raises(FilterError): compile_filter('语言:火星语')

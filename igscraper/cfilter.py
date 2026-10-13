@@ -5,7 +5,7 @@ Operators: and/&&/&/并且/且 ; or/||/|/或者/或 ; not/!/-/不含/非 ; paren
 import re
 class FilterError(ValueError): pass
 AND, OR, NOT = {'and', '&&', '&', '并且', '且'}, {'or', '||', '|', '或者', '或'}, {'not', '!', '不含', '非'}
-_TOK = re.compile(r'\s*(?:(\()|(\))|("(?:[^"\\]|\\.)*"|“[^”]*”|\'[^\']*\')|([A-Za-z_]+(?:>=|<=|!=|>|<|=|:)[^\s()&|"“\']+)|(&&|\|\||[&|!])|(并且|或者|不含)|((?:(?!并且|或者|不含)[^\s()&|!"“\'])+))')
+_TOK = re.compile(r'\s*(?:(\()|(\))|("(?:[^"\\]|\\.)*"|“[^”]*”|\'[^\']*\')|((?:[A-Za-z_]+|语言|用户|点赞数|点赞|赞|回复|平台|地区)\s*(?:>=|<=|!=|>|<|=|:|：)\s*[^\s()&|"“\']+)|(&&|\|\||[&|!])|(并且|或者|不含)|((?:(?!并且|或者|不含)[^\s()&|!"“\'])+))')
 
 def tokenize(s):
     out, i = [], 0
@@ -64,19 +64,32 @@ def parse(s):
     if pos[0] < len(toks): raise FilterError(f'多余的内容：{toks[pos[0]][1]}')
     return a
 
-FIELDS = {'lang', 'user', 'likes', 'is_reply', 'reply', 'platform', 'plat', 'region'}
+FIELDS = {'lang', 'user', 'likes', 'is_reply', 'reply', 'platform', 'plat', 'region',
+          '语言', '用户', '点赞', '点赞数', '赞', '回复', '平台', '地区'}
+ALIAS = {'reply': 'is_reply', 'plat': 'platform', '语言': 'lang', '用户': 'user', '点赞': 'likes', '点赞数': 'likes', '赞': 'likes',
+         '回复': 'is_reply', '平台': 'platform', '地区': 'region'}
+PLAT_ZH = {'ins': 'instagram', 'ig': 'instagram', '脸书': 'facebook', 'fb': 'facebook', '抖音': 'tiktok', 'tt': 'tiktok'}
+def _lang_code(v):
+    from .langdet import LANGS
+    if v.lower() in LANGS or v.lower() == 'unknown': return v.lower()
+    if v in ('未知', '未识别'): return 'unknown'
+    for k, n in LANGS.items():
+        if v == n or v + '语' == n or v == n.rstrip('语文') : return k
+    raise FilterError(f'不认识的语言「{v}」，请用语言代码（如 es）或中文名（如 西班牙语）')
 def term(w):
-    m = re.fullmatch(r'(\w+)\s*(>=|<=|!=|>|<|=|:)\s*(.+)', w)
+    m = re.fullmatch(r'(\w+)\s*(>=|<=|!=|>|<|=|:|：)\s*(.+)', w)
     if m and m.group(1).lower() in FIELDS:
-        f, op, v = m.group(1).lower(), m.group(2), m.group(3)
-        f = {'reply': 'is_reply', 'plat': 'platform'}.get(f, f)
+        f, op, v = m.group(1).lower(), m.group(2).replace('：', ':'), m.group(3)
+        f = ALIAS.get(f, f)
+        if f == 'lang': v = _lang_code(v)
+        if f == 'platform': v = PLAT_ZH.get(v.lower(), v)
         if f in ('likes', 'is_reply'):
             if not re.fullmatch(r'\d+', v): raise FilterError(f'「{f}」后面需要数字：{w}')
             v = int(v)
         elif op not in (':', '=', '!='): raise FilterError(f'「{f}」只能用 : 或 = ：{w}')
         return ('field', f, op, v)
     if m and op_like(w) and m.group(1).lower() not in FIELDS and ':' in w and not w.lower().startswith('http'):
-        raise FilterError(f'未知字段「{m.group(1)}」，可用：lang / user / likes / is_reply / platform / region')
+        raise FilterError(f'未知字段「{m.group(1)}」，可用：lang(语言) / user(用户) / likes(点赞) / is_reply(回复) / platform(平台) / region(地区)')
     return ('term', w)
 def op_like(w): return re.fullmatch(r'[A-Za-z_]+:.+', w) is not None
 

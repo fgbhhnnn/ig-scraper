@@ -23,7 +23,10 @@ class CommentTask(Task):
             if not pl: self.log(f'无法识别平台，跳过：{u}'); continue
             items.append({'platform': pl, 'url': u, '_resolve': True})
         if not items: raise RuntimeError('没有要爬取的内容：请在结果页勾选，或粘贴链接')
-        max_c = max(1, int(P.get('max_comments') or 100)); max_p = max(1, min(int(P.get('max_pages') or 5), 100))
+        max_c = int(P.get('max_comments') or 0); max_p = int(P.get('max_pages') or 0)
+        if max_c <= 0: max_c = 10**9
+        if max_p <= 0: max_p = 10**6
+        self.log(f"每条最多评论：{'全部' if max_c >= 10**9 else max_c}；最多翻页：{'不限' if max_p >= 10**6 else max_p}")
         replies = bool(P.get('replies', True))
         m = Matcher(P.get('phrases') or [], True, True)
         spam = re.compile(DEFAULT_SPAM, re.I)
@@ -52,8 +55,11 @@ class CommentTask(Task):
             if self._stop: break
             pl = it['platform']; PN = {'instagram': 'Instagram', 'facebook': 'Facebook', 'tiktok': 'TikTok'}[pl]
             self.set(stage=f'{PN} 评论 {n}/{len(items)}', current=it.get('url', ''))
+            blocked = None; cs = []; c = None
+            post_id = it.get('shortcode') or ''; account = it.get('account', ''); url = it.get('url', '')
             try:
                 c = client(pl)
+                c.partial = []
                 if pl == 'instagram':
                     code = it.get('shortcode') or (re.search(r'/(?:p|reel|reels|tv)/([\w-]+)', it['url']) or [None, None])[1]
                     if not code: self.log(f'无法识别 IG 链接：{it["url"]}'); continue
@@ -69,7 +75,13 @@ class CommentTask(Task):
                     if it.get('_resolve'): it = dict(it, **c.resolve(it['url']))
                     cs = c.comments_full(it, max_p, max_c, replies)
                     post_id, account, url = it['shortcode'], it.get('account', ''), it['url']
-            except Blocked: raise
+            except Blocked as e:
+                blocked = e; cs = list(getattr(c, 'partial', None) or [])
+                if not cs: raise
+                self.log(f'⚠️ 平台限制/风控，本条已抓到的 {len(cs)} 条评论先保存')
+                if pl == 'instagram' and not post_id: post_id = (re.search(r'/(?:p|reel|reels|tv)/([\w-]+)', url) or [None, ''])[1]
+                if pl == 'instagram' and it.get('_resolve'): url = f'https://www.instagram.com/p/{post_id}/'
+                cs = cs[:max_c]
             except Exception as e:
                 self.log(f'❌ {it.get("url")} 失败：{e}'); continue
             now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'); rows = []
@@ -85,6 +97,7 @@ class CommentTask(Task):
             db.upsert_comments(rows); total += len(rows)
             with self.lock: self.state['scanned'] += 1; self.state['matched'] = total
             self.log(f'✅ [{PN}] {account or "-"} {url} 评论 {len(rows)} 条（回复 {sum(r["is_reply"] for r in rows)}）')
+            if blocked: raise blocked
         if 'facebook' in clients: config.save({'fb_docs': clients['facebook'].export_docs()})
         if 'tiktok' in clients and clients['tiktok'].S['ms_token'] != cfg.get('tt_ms_token'): config.save({'tt_ms_token': clients['tiktok'].S['ms_token']})
         self.log(f'结束：{self.state["scanned"]}/{len(items)} 个内容，共 {total} 条评论')

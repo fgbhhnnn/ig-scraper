@@ -253,11 +253,13 @@ class FB:
     def gql_comments(self, item, max_pages=2, ref=None, until=None):
         """Root query + up to max_pages-1 pagination pages; stops early when until(list) is True."""
         cs, cur = self.root_comments(item, None, ref)
+        seen = {cur}; pg = 1; self.partial = cs
         for _ in range(max(0, max_pages - 1)):
             if not cur or self.stop() or (until and until(cs)): break
             more, cur = self.page_comments(item, cur, ref)
-            if not more: break
-            cs += more
+            if not more or cur in seen: cs += more or []; break
+            seen.add(cur); cs += more; pg += 1
+            if pg % 10 == 0: self.log(f'  Facebook 已翻 {pg} 页，{len(cs)} 条评论…')
         return cs
 
     def resolve(self, url):

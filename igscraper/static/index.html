@@ -45,16 +45,18 @@ MOQ
 <p class="hint">AI 会把关键词/标签扩展成更多搜索词，并把「评论区关键信息」裂变成多语言询盘短语。没有 AI Key 也能用：内置询盘规则(how much/price/moq/wholesale/whatsapp/where…)始终生效，可直接手动编辑上面三个列表。</p>
 <h3>平台与内容</h3><div class="row">
 <label>平台<select id="platform"><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
-<label>内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
-<label>TikTok 评论最多翻页数（20条/页）<input id="tt_comment_pages" type="number" value="2" min="1" max="50"></label>
-<label>Facebook 评论最多翻页数（约10条/页）<input id="fb_comment_pages" type="number" value="2" min="1" max="50"></label>
-<label class="cb" id="fbviews_w"><input type="checkbox" id="fb_fetch_views" checked>Facebook：从帖子页读取播放量</label></div>
-<p class="hint">TikTok 只抓视频（内容类型自动为视频）。Facebook / TikTok 的话题标签会按「#标签」作为关键词搜索；Facebook 每条内容需要打开一次帖子页来读评论（约 2~5 秒/条），建议目标条数不要太大。</p>
+<label data-plat="instagram facebook">内容类型<select id="content_type"><option value="video">视频 (Reels/视频)</option><option value="post">帖子 (图片/文字/任意)</option><option value="both">视频 + 帖子</option></select></label>
+<label data-plat="instagram">Instagram 评论最多翻页数（50条/页）<input id="comment_pages" type="number" value="2" min="1" max="5"></label>
+<label data-plat="tiktok">TikTok 评论最多翻页数（20条/页）<input id="tt_comment_pages" type="number" value="2" min="1" max="50"></label>
+<label data-plat="facebook">Facebook 评论最多翻页数（约10条/页）<input id="fb_comment_pages" type="number" value="2" min="1" max="50"></label>
+<label class="cb" id="fbviews_w" data-plat="facebook"><input type="checkbox" id="fb_fetch_views" checked>Facebook：从帖子页读取播放量</label></div>
+<p class="hint" data-plat="instagram">Instagram：关键词走站内搜索，话题标签读取标签页的热门/最新内容；每页约 50 条评论。</p>
+<p class="hint" data-plat="tiktok">TikTok：只抓视频；话题标签会按「#标签」作为关键词搜索；每页约 20 条评论。</p>
+<p class="hint" data-plat="facebook">Facebook：话题标签会按「#标签」作为关键词搜索；每条内容需要读一次评论（约 2~5 秒/条），每页约 10 条评论，建议目标条数不要太大。</p>
 <h3>来源与数量</h3><div class="row">
 <label>来源<select id="mode"><option value="keyword">关键词搜索（推荐，更准）</option><option value="hashtag">话题标签</option><option value="both">两者都用</option></select></label>
 <label>目标条数（有提问的）<input id="max_videos" type="number" value="20" min="1"></label>
-<label>每个关键词翻页数<input id="search_pages" type="number" value="4" min="1" max="10"></label>
-<label>每条内容最多看评论页数(IG 50条/页)<input id="comment_pages" type="number" value="2" min="1" max="5"></label></div>
+<label>每个关键词翻页数<input id="search_pages" type="number" value="4" min="1" max="10"></label></div>
 <div class="row"><label class="cb"><input type="checkbox" id="skip_existing" checked>跳过本地数据库已有的内容</label>
 <label class="cb"><input type="checkbox" id="use_default_rules" checked>使用内置询盘规则</label>
 <label class="cb"><input type="checkbox" id="question_mark" checked>带问号的评论也算提问</label></div>
@@ -83,14 +85,28 @@ MOQ
 </section>
 <section id="p-comments" hidden><h2>评论爬取</h2>
 <div class="grid2"><label>粘贴链接（每行一个，自动识别 Instagram / Facebook / TikTok）<textarea id="c_urls" rows="5" placeholder="https://www.instagram.com/reel/xxxx/&#10;https://www.tiktok.com/@user/video/123&#10;https://www.facebook.com/reel/123/"></textarea></label>
-<div><div class="row"><label>每条最多评论数<input id="c_max" type="number" value="100" min="1"></label><label>每条最多翻页数<input id="c_pages" type="number" value="5" min="1" max="100"></label></div>
+<div><div class="row"><label>每条最多评论数<input id="c_max" type="number" min="0" placeholder="留空 = 全部"></label><label>每条最多翻页数<input id="c_pages" type="number" min="0" placeholder="留空 = 不限"></label></div>
 <label class="cb"><input type="checkbox" id="c_replies" checked>包含回复（IG 楼中楼预览、TikTok 回复接口、FB 返回中自带的回复）</label>
 <label>询盘匹配短语（可选，逗号分隔，叠加内置规则）<input id="c_phr" placeholder="价格, moq, catalog"></label>
 <div class="row"><button class="big" onclick="cStart()">▶ 爬取链接评论</button><button class="danger" onclick="api('/api/ctask/stop',{})">■ 停止</button></div></div></div>
 <div class="stats"><div><i>阶段</i><b id="c_stage">-</b></div><div><i>已完成内容</i><b id="c_done">0</b></div><div><i>评论数</i><b id="c_total">0</b></div></div>
 <div class="bar"><div id="c_bar"></div></div><pre id="c_log" style="height:140px"></pre>
 <h3>评论筛选 <span class="help" title="语法示例：&#10;price and moq　　（两个词都要有）&#10;price or &quot;how much&quot;　（任一）&#10;(price or 多少钱) and not scam&#10;price&amp;moq　price&amp;&amp;moq　price||moq　!scam&#10;价格并且起订量　价格或者多少钱　价格 不含 骗子&#10;lang:es and precio　　lang!=en&#10;user:abc　likes&gt;5　likes&gt;=10　is_reply:0　platform:tiktok　region:巴西&#10;空格分隔的多个词默认是“并且”；英文单词按词首匹配（price 能匹配 prices）；要搜 and/or 本身请加引号">❓语法</span></h3>
-<div class="row"><input id="c_expr" class="grow" placeholder='筛选表达式，例如 (price or "how much") and not scam ；lang:es and precio ；likes>5' oninput="cLoadSoon()"><span id="c_err" class="err"></span></div>
+<details id="c_help" class="helpbox"><summary>📖 筛选怎么写？（点击展开/收起）</summary>
+<div class="grid2"><div><table class="ht"><tr><th>想要</th><th>写法</th></tr>
+<tr><td>同时包含两个词</td><td><code>price and moq</code>　或 <code>price 并且 moq</code>　或直接空格 <code>price moq</code></td></tr>
+<tr><td>包含任意一个</td><td><code>price or "how much"</code>　或 <code>价格 或者 多少钱</code></td></tr>
+<tr><td>排除某个词</td><td><code>not scam</code>　或 <code>不含 scam</code>、<code>-scam</code></td></tr>
+<tr><td>词组（含空格）</td><td>用引号括起来：<code>"how much"</code></td></tr>
+<tr><td>按语言</td><td><code>lang:es</code>　<code>语言:西班牙语</code>　不要英语：<code>lang!=en</code> 或 <code>语言!=英语</code></td></tr>
+<tr><td>点赞数</td><td><code>likes>5</code>　<code>点赞>=10</code></td></tr>
+<tr><td>只看回复 / 只看一级评论</td><td><code>is_reply:1</code>（<code>回复:1</code>）／ <code>回复:0</code></td></tr>
+<tr><td>按评论者</td><td><code>user:abc</code>（<code>用户:abc</code>，包含即可）</td></tr>
+<tr><td>按平台 / 地区</td><td><code>平台:tiktok</code>　<code>地区:巴西</code></td></tr>
+<tr><td>括号组合</td><td><code>(price or 多少钱) and 语言:es and not scam</code></td></tr></table>
+<p class="hint">不区分大小写；英文词按词首匹配（price 能匹配 prices）；中文按包含匹配。符号写法也可以：<code>&&</code> <code>||</code> <code>!</code>。语法写错会在右侧提示。「可能地区」仅由语言推断，不是真实位置。</p></div>
+<div><table class="ht"><tr><th>语言代码</th><th>中文名</th></tr><tr><td><code>en</code></td><td>英语</td></tr><tr><td><code>es</code></td><td>西班牙语</td></tr><tr><td><code>pt</code></td><td>葡萄牙语</td></tr><tr><td><code>fr</code></td><td>法语</td></tr><tr><td><code>de</code></td><td>德语</td></tr><tr><td><code>it</code></td><td>意大利语</td></tr><tr><td><code>ru</code></td><td>俄语</td></tr><tr><td><code>ar</code></td><td>阿拉伯语</td></tr><tr><td><code>tr</code></td><td>土耳其语</td></tr><tr><td><code>id</code></td><td>印尼语</td></tr><tr><td><code>ms</code></td><td>马来语</td></tr><tr><td><code>vi</code></td><td>越南语</td></tr><tr><td><code>th</code></td><td>泰语</td></tr><tr><td><code>hi</code></td><td>印地语</td></tr><tr><td><code>tl</code></td><td>菲律宾语</td></tr><tr><td><code>zh</code></td><td>中文</td></tr><tr><td><code>ja</code></td><td>日语</td></tr><tr><td><code>ko</code></td><td>韩语</td></tr><tr><td><code>pl</code></td><td>波兰语</td></tr><tr><td><code>nl</code></td><td>荷兰语</td></tr><tr><td><code>unknown</code></td><td>未知（太短/表情）</td></tr></table></div></div></details>
+<div class="row"><input id="c_expr" class="grow" placeholder='输入筛选条件，例如：price 并且 moq ／ 语言:西班牙语 ／ 点赞>5 ／ (price 或者 多少钱) 不含 scam' oninput="cLoadSoon()"><span id="c_err" class="err"></span></div>
 <div class="row"><label>平台<select id="c_plat" onchange="cLoad()"><option value="">全部</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
 <label>排除词（逗号分隔）<input id="c_exw" oninput="cLoadSoon()"></label><label>排除用户（逗号分隔）<input id="c_exu" oninput="cLoadSoon()"></label>
 <label class="cb"><input type="checkbox" id="c_hauthor" checked onchange="cLoad()">隐藏作者本人评论</label><label class="cb"><input type="checkbox" id="c_hspam" onchange="cLoad()">隐藏广告/推广</label>

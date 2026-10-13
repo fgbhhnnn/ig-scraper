@@ -2,6 +2,7 @@
 import json, re, time, random, datetime, requests
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'
 APP_ID = '936619743392459'
+REPLY_QH = '1ee91c32fc020d44158a3192eda98247'
 COMMENT_QH = 'bc3296d1ce80a24b1b6e40b1e72903f5'
 
 class Blocked(Exception): pass
@@ -121,7 +122,7 @@ class IG:
 
     def comments_full(self, shortcode, max_pages=4, max_comments=200, replies=True):
         """Rich comments: [{id,user,text,likes,time,is_reply}] incl. preview of threaded replies; also returns owner username."""
-        cur, out, owner = None, [], ''
+        cur, out, owner, pg = None, [], '', 0; self.partial = out; more = []; seen = set()
         for _ in range(max_pages):
             if self.stop() or len(out) >= max_comments: break
             var = {'shortcode': shortcode, 'first': 50}
@@ -130,12 +131,37 @@ class IG:
             try: sm = d['data']['shortcode_media']; e = sm['edge_media_to_parent_comment']
             except Exception: break
             owner = owner or ((sm.get('owner') or {}).get('username') or '')
+            n0 = len(out)
             for n in e['edges']:
                 nodes = [(n['node'], 0)]
-                if replies: nodes += [(r['node'], 1) for r in (n['node'].get('edge_threaded_comments') or {}).get('edges', [])]
+                tc = n['node'].get('edge_threaded_comments') or {}
+                if replies: nodes += [(r['node'], 1) for r in tc.get('edges', [])]
+                if replies and (tc.get('page_info') or {}).get('has_next_page'): more.append((n['node']['id'], tc['page_info'].get('end_cursor')))
                 for x, rep in nodes:
+                    if str(x['id']) in seen: continue
+                    seen.add(str(x['id']))
                     out.append({'id': str(x['id']), 'user': x['owner']['username'], 'text': x['text'].replace('\n', ' '),
                                 'likes': (x.get('edge_liked_by') or {}).get('count', 0), 'time': x.get('created_at') or 0, 'is_reply': rep})
-            if not e['page_info']['has_next_page']: break
-            cur = e['page_info']['end_cursor']
+            pg += 1; new = len(out) - n0
+            if pg % 5 == 0: self.log(f'  IG 已翻 {pg} 页，{len(out)} 条评论…')
+            nc = e['page_info'].get('end_cursor')
+            if not e['page_info']['has_next_page'] or not nc or nc == cur or not e['edges'] or (new == 0 and pg > 1): break
+            cur = nc
+        more = list(dict(more).items())
+        for i, (cid, rc) in enumerate(more, 1):
+            if self.stop() or len(out) >= max_comments: break
+            for _ in range(20):
+                d = self.get('/graphql/query/', {'query_hash': REPLY_QH, 'variables': json.dumps({'comment_id': str(cid), 'first': 50, 'after': rc})})
+                try: e = d['data']['comment']['edge_threaded_comments']
+                except Exception: break
+                for r in e['edges']:
+                    x = r['node']
+                    if str(x['id']) in seen: continue
+                    seen.add(str(x['id']))
+                    out.append({'id': str(x['id']), 'user': x['owner']['username'], 'text': x['text'].replace('\n', ' '),
+                                'likes': (x.get('edge_liked_by') or {}).get('count', 0), 'time': x.get('created_at') or 0, 'is_reply': 1})
+                nc = e['page_info'].get('end_cursor')
+                if not e['page_info'].get('has_next_page') or not nc or nc == rc: break
+                rc = nc
+            if i % 10 == 0: self.log(f'  IG 回复：已读 {i}/{len(more)} 个楼，共 {len(out)} 条…')
         return out[:max_comments], owner
