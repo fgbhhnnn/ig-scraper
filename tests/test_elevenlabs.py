@@ -48,7 +48,7 @@ def test_parse_fallbacks():
 def test_long_split():
     ws = [{'text': f'w{i} ', 'start': i * 0.5, 'end': i * 0.5 + 0.4, 'type': 'word'} for i in range(40)]
     L = vai.el_lines({'words': ws})
-    assert len(L) > 1 and all(l['end'] - l['start'] <= 8.5 for l in L)
+    assert len(L) > 1 and all(l['end'] - l['start'] <= 10.5 for l in L)
 
 @pytest.mark.parametrize('status,body,kind', [
     (400, {"detail": {"type": "authentication_error", "code": "invalid_api_key", "message": "API key is invalid.", "status": "invalid_api_key"}}, 'key'),
@@ -105,3 +105,8 @@ def test_do_stt_skips_gracefully(tmp_path):
 def test_prompt_mentions_alignment():
     s = vai.meta_text({'platform': 'tiktok', 'duration': 10}, [], '[0:00.0-0:00.9] Hello')
     assert '对齐' in s and '[0:00.0-0:00.9] Hello' in s
+
+def test_hindi_danda():
+    ws = [{'text': x, 'start': i * 0.3, 'end': i * 0.3 + 0.25, 'type': 'word'} for i, x in enumerate(['ये', ' ', 'order', ' ', 'है।', ' ', 'दो', ' ', 'दिन', ' ', 'लग', ' ', 'गया।'])]
+    ws = [w if w['text'] != ' ' else dict(w, type='spacing') for w in ws]
+    assert [l['text'] for l in vai.el_lines({'words': ws})] == ['ये order है।', 'दो दिन लग गया।']

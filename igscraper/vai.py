@@ -144,7 +144,7 @@ def el_err(status, text):
 class STTError(AIError):
     def __init__(self, msg, status=0, kind='other'): super().__init__(msg, status); self.kind = kind
 
-def el_lines(resp, max_chars=60, max_dur=8.0, gap=0.8):
+def el_lines(resp, max_chars=60, max_dur=10.0, gap=0.8):
     """把词级时间戳聚合成带时间的句子：遇到句末标点、停顿>gap 秒、说话人切换、过长时断句。-> [{start,end,text,speaker}]"""
     if isinstance(resp, dict) and resp.get('transcripts'):
         ws = sorted((w for t in resp['transcripts'] for w in (t.get('words') or [])), key=lambda w: w.get('start') or 0)
@@ -160,11 +160,12 @@ def el_lines(resp, max_chars=60, max_dur=8.0, gap=0.8):
             if cur: cur['text'] += t
             continue
         if cur and ((st is not None and cur['end'] is not None and st - cur['end'] > gap) or (w.get('speaker_id') and w.get('speaker_id') != cur['speaker'])
-                    or len(cur['text']) >= max_chars or (st is not None and st - cur['start'] >= max_dur)): flush()
+                    or (len(cur['text']) >= max_chars and re.search(r'[,，、;；:：]\s*$', cur['text'])) or len(cur['text']) >= max_chars * 1.6
+                    or (st is not None and st - cur['start'] >= max_dur)): flush()
         if cur is None: cur = {'start': st if st is not None else (out[-1]['end'] if out else 0) or 0, 'end': en, 'text': '', 'speaker': w.get('speaker_id')}
         cur['text'] += t
         if en is not None: cur['end'] = en
-        if re.search(r'[.!?。！？…]["\'”’)]*$', t.strip()) and typ == 'word': flush()
+        if re.search(r'[.!?。！？…।॥؟۔]["\'”’)]*$', t.strip()) and typ == 'word': flush()
     flush()
     return out
 
@@ -446,7 +447,7 @@ class AnalyzeTask(Task):
             if prov == 'openai':
                 t = transcribe(b, k, stt, ap); self.log(f'口播转写（OpenAI 兼容 {stt}）{len(t)} 字'); return t
             m = (cfg.get('el_model') or EL_MODEL).strip(); t0 = time.time()
-            self.log(f'口播转写中（ElevenLabs {m}，音频 {os.path.getsize(ap)/1e6:.1f} MB）…')
+            self.log(f'口播转写中（ElevenLabs {m}，音频 {os.path.getsize(ap)/1024:.0f} KB）…')
             txt, lang = el_parse(el_transcribe(cfg['el_key'], m, ap, cfg.get('el_lang', '')))
             if not txt: self.log('ElevenLabs 没识别到语音（可能是纯音乐/无口播），跳过'); return ''
             self.log(f'口播转写完成：{txt.count(chr(10)) + 1} 句，语言 {lang or "未知"}，用时 {time.time() - t0:.0f}s')
