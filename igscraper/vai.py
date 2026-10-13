@@ -106,6 +106,114 @@ def transcribe(base, key, model, path):
     try: return (r.json().get('text') or '').strip()
     except Exception: return r.text.strip()
 
+# ---- ElevenLabs Speech-to-Text（https://elevenlabs.io/docs/api-reference/speech-to-text/convert）----
+EL_URL = 'https://api.elevenlabs.io/v1/speech-to-text'
+EL_MODEL = 'scribe_v2'
+EL_MODELS = ('scribe_v2', 'scribe_v1')
+
+def _proxies():
+    try:
+        from .tt import sys_proxies
+        return sys_proxies() or None
+    except Exception: return None
+
+def el_form(model, lang=''):
+    """multipart 表单字段（不含文件）：自动识别语言、词级时间戳、标注笑声等声音事件"""
+    d = {'model_id': (model or EL_MODEL).strip(), 'timestamps_granularity': 'word', 'tag_audio_events': 'true', 'diarize': 'true'}
+    if (lang or '').strip(): d['language_code'] = lang.strip()
+    return d
+
+def el_err(status, text):
+    """把 ElevenLabs 错误变成中文提示；kind: key / quota / nospeech / other"""
+    msg, code = '', ''
+    try:
+        d = json.loads(text or '{}').get('detail')
+        if isinstance(d, dict): msg, code = d.get('message') or '', f"{d.get('status') or ''} {d.get('code') or ''}"
+        elif isinstance(d, list): msg = '; '.join(str(x.get('msg', x)) for x in d)[:200]
+        elif d: msg = str(d)
+    except Exception: msg = clean_err(status, text)
+    lc = (code + ' ' + msg).lower()
+    if status == 401 or 'api_key' in lc or 'unauthorized' in lc or 'authorization' in lc:
+        return 'key', f'ElevenLabs Key 无效或没有转写权限（{msg or status}）'
+    if status in (402, 429) or any(k in lc for k in ('quota', 'credit', 'limit', 'payment', 'subscription')):
+        return 'quota', f'ElevenLabs 额度不足或请求过于频繁（{msg or status}）'
+    if any(k in lc for k in ('no speech', 'too short', 'empty audio', 'audio_too_short')):
+        return 'nospeech', f'音频里没有可识别的语音（{msg}）'
+    return 'other', f'ElevenLabs HTTP {status}：{(msg or text or "")[:200]}'
+
+class STTError(AIError):
+    def __init__(self, msg, status=0, kind='other'): super().__init__(msg, status); self.kind = kind
+
+def el_lines(resp, max_chars=60, max_dur=8.0, gap=0.8):
+    """把词级时间戳聚合成带时间的句子：遇到句末标点、停顿>gap 秒、说话人切换、过长时断句。-> [{start,end,text,speaker}]"""
+    if isinstance(resp, dict) and resp.get('transcripts'):
+        ws = sorted((w for t in resp['transcripts'] for w in (t.get('words') or [])), key=lambda w: w.get('start') or 0)
+    else: ws = (resp or {}).get('words') or []
+    out, cur = [], None
+    def flush():
+        nonlocal cur
+        if cur and cur['text'].strip(): cur['text'] = re.sub(r'\s+', ' ', cur['text']).strip(); out.append(cur)
+        cur = None
+    for w in ws:
+        t, typ, st, en = w.get('text') or '', w.get('type') or 'word', w.get('start'), w.get('end')
+        if typ == 'spacing':
+            if cur: cur['text'] += t
+            continue
+        if cur and ((st is not None and cur['end'] is not None and st - cur['end'] > gap) or (w.get('speaker_id') and w.get('speaker_id') != cur['speaker'])
+                    or len(cur['text']) >= max_chars or (st is not None and st - cur['start'] >= max_dur)): flush()
+        if cur is None: cur = {'start': st if st is not None else (out[-1]['end'] if out else 0) or 0, 'end': en, 'text': '', 'speaker': w.get('speaker_id')}
+        cur['text'] += t
+        if en is not None: cur['end'] = en
+        if re.search(r'[.!?。！？…]["\'”’)]*$', t.strip()) and typ == 'word': flush()
+    flush()
+    return out
+
+def fmt_ts(x):
+    x = float(x or 0); return f'{int(x // 60)}:{x % 60:04.1f}'
+
+def lines_text(lines):
+    spk = len({l.get('speaker') for l in lines if l.get('speaker')}) > 1
+    return '\n'.join(f"[{fmt_ts(l['start'])}-{fmt_ts(l['end'] if l['end'] is not None else l['start'])}] " + (f"{l['speaker'].replace('speaker_', '说话人')}: " if spk and l.get('speaker') else '') + l['text'] for l in lines)
+
+def el_parse(resp):
+    """-> (带时间戳的转写文本, 语言代码)；没有词级时间戳时退回纯文本"""
+    lines = el_lines(resp)
+    lang = (resp or {}).get('language_code') or ''
+    if not lines and isinstance(resp, dict) and resp.get('transcripts'): lang = resp['transcripts'][0].get('language_code') or ''
+    if lines: return lines_text(lines), lang
+    txt = (resp or {}).get('text') or '\n'.join(t.get('text') or '' for t in (resp or {}).get('transcripts') or [])
+    return txt.strip(), lang
+
+def el_transcribe(key, model, path, lang='', timeout=600):
+    with open(path, 'rb') as f:
+        try:
+            r = requests.post(EL_URL, headers={'xi-api-key': key.strip()}, data=el_form(model, lang),
+                              files={'file': (os.path.basename(path), f, 'audio/mpeg' if path.endswith('.mp3') else 'application/octet-stream')},
+                              timeout=(30, timeout), proxies=_proxies())
+        except requests.RequestException as e: raise STTError(f'连接 ElevenLabs 失败（检查网络/系统代理）：{e.__class__.__name__}')
+    if r.status_code != 200:
+        kind, msg = el_err(r.status_code, r.text); raise STTError(msg, r.status_code, kind)
+    try: return r.json()
+    except Exception: raise STTError(f'ElevenLabs 返回格式不对：{r.text[:200]}')
+
+def el_test(key, model, tmpdir=None):
+    """生成 1.5 秒测试音频（ffmpeg 合成音）发给转写接口；能返回 200 即说明 Key、权限、模型都可用"""
+    if not (key or '').strip(): return False, '请先填写 ElevenLabs API Key'
+    d = tempfile.mkdtemp(dir=tmpdir); p = os.path.join(d, 'test.mp3')
+    try:
+        frames._run(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5', '-ac', '1', '-ar', '16000', '-b:a', '48k', '-y', p], 60)
+        if not os.path.exists(p): return False, '无法生成测试音频（ffmpeg 不可用）'
+        t0 = time.time(); resp = el_transcribe(key, model, p, timeout=120)
+        txt, lang = el_parse(resp)
+        return True, f'✅ ElevenLabs 转写接口可用（模型 {model or EL_MODEL}，{time.time() - t0:.1f}s）。测试音是一段提示音，没有人声属正常' + (f'，返回：{txt[:60]}' if txt else '')
+    except STTError as e: return False, '❌ ' + str(e)
+    finally: shutil.rmtree(d, ignore_errors=True)
+
+def stt_provider(cfg):
+    p = cfg.get('ai_stt_provider')
+    if p in ('off', 'openai', 'elevenlabs'): return p
+    return 'openai' if (cfg.get('ai_stt_model') or '').strip() else 'off'
+
 def _too_many(e):
     b = (str(e) + ' ' + getattr(e, 'body', '')).lower()
     if getattr(e, 'status', 0) in RETRY_SLOW or '超时' in str(e): return True
@@ -136,7 +244,9 @@ def meta_text(M, comments, transcript):
     s = [f"平台：{M.get('platform')}", f"账号：{M.get('account')}", f"链接：{M.get('url')}", f"发布日期：{M.get('date') or '未知'}",
          f"时长：{M.get('duration', 0):.1f} 秒", f"播放：{M.get('plays') or '未知'}　点赞：{M.get('likes') or '未知'}　评论：{M.get('comments') or '未知'}　分享：{M.get('shares') if M.get('shares') is not None else '未知'}",
          f"文案：{M.get('caption') or '(无)'}", f"标签：{tags or '(无)'}"]
-    if transcript: s.append(f"口播/音频转写：{transcript[:6000]}")
+    if transcript:
+        timed = bool(re.match(r'\[\d+:\d', transcript))
+        s.append("口播/音频转写" + ("（每行开头是 [开始-结束] 时间，单位 分:秒，请把口播和对应时间点的画面对齐分析，在“结构与节奏”表格里填写该时间段的口播原文）" if timed else "") + "：\n" + transcript[:8000])
     if comments:
         s.append(f"评论（共抓取 {len(comments)} 条，提问/询盘类在前，[问]=提问类）：")
         s += [f"- {'[问] ' if c.get('q') else ''}{c['user']}: {c['text'][:300]}" + (f"（赞 {c['likes']}）" if c.get('likes') else '') for c in comments]
@@ -310,13 +420,7 @@ class AnalyzeTask(Task):
                 try: M.update(make_thumbs(vpath, tmp, [t for t, _ in fr if t < 3.0]))
                 except Exception as e: self.log(f'缩略图生成失败（不影响分析）：{e}')
                 self.log(f"时长 {M['duration']:.1f}s，前 3 秒每秒 4 张、之后每秒 {fps:g} 张，另加转场帧 {len(ts) - len(frames.frame_schedule(M['duration'], fps=fps))} 张，共截图 {len(fr)} 张")
-                stt = (cfg.get('ai_stt_model') or '').strip()
-                if stt and has_a:
-                    try:
-                        ap = frames.extract_audio(vpath, os.path.join(tmp, 'audio.mp3'))
-                        if ap: transcript = transcribe(b, k, stt, ap); self.log(f'口播转写 {len(transcript)} 字')
-                    except Exception as e: self.log(f'⚠️ 语音转写不可用，已跳过：{e}')
-                elif not stt: self.log('未设置语音转写模型，跳过口播转写（可在 AI 设置里填写，如 whisper-1）')
+                transcript = self.do_stt(cfg, b, k, vpath, tmp, has_a)
             if self._stop: return
             self.set(stage='⑤ AI 分析中（可能需要几分钟）', scanned=4)
             profile, vision, note = self.ai_profile(b, k, model, M, cs, transcript, fr, cap, cfg.get('ai_vision', ''))
@@ -328,6 +432,27 @@ class AnalyzeTask(Task):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
             self.log('已删除本地临时视频和截图' if not os.path.exists(tmp) else f'⚠️ 临时目录未能删除：{tmp}')
+
+    def do_stt(self, cfg, b, k, vpath, tmp, has_a):
+        prov = stt_provider(cfg)
+        if prov == 'off': self.log('口播转写已关闭（可在 AI 设置 → 转写方式 里开启）'); return ''
+        if not has_a: self.log('视频没有音轨，跳过口播转写'); return ''
+        if prov == 'elevenlabs' and not (cfg.get('el_key') or '').strip(): self.log('⚠️ 转写方式为 ElevenLabs 但没填 API Key，跳过口播转写'); return ''
+        stt = (cfg.get('ai_stt_model') or '').strip()
+        if prov == 'openai' and not stt: self.log('⚠️ 未设置语音转写模型，跳过口播转写（可在 AI 设置里填写，如 whisper-1）'); return ''
+        try:
+            ap = frames.extract_audio(vpath, os.path.join(tmp, 'audio.mp3'))
+            if not ap: self.log('音频提取失败或太短，跳过口播转写'); return ''
+            if prov == 'openai':
+                t = transcribe(b, k, stt, ap); self.log(f'口播转写（OpenAI 兼容 {stt}）{len(t)} 字'); return t
+            m = (cfg.get('el_model') or EL_MODEL).strip(); t0 = time.time()
+            self.log(f'口播转写中（ElevenLabs {m}，音频 {os.path.getsize(ap)/1e6:.1f} MB）…')
+            txt, lang = el_parse(el_transcribe(cfg['el_key'], m, ap, cfg.get('el_lang', '')))
+            if not txt: self.log('ElevenLabs 没识别到语音（可能是纯音乐/无口播），跳过'); return ''
+            self.log(f'口播转写完成：{txt.count(chr(10)) + 1} 句，语言 {lang or "未知"}，用时 {time.time() - t0:.0f}s')
+            return txt
+        except STTError as e: self.log(f'⚠️ 口播转写跳过：{e}'); return ''
+        except Exception as e: self.log(f'⚠️ 语音转写不可用，已跳过：{e}'); return ''
 
     def ai_profile(self, b, k, model, M, cs, transcript, fr, cap, vmode):
         text = meta_text(M, cs, transcript)

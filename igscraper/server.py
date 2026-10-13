@@ -24,11 +24,12 @@ def get_cfg():
                     'tt_ms_token_set': bool(c['tt_ms_token']), 'tt_device_id': c['tt_device_id'], 'tt_user_agent': c['tt_user_agent'],
                     'tt_delay_min': c['tt_delay_min'], 'tt_delay_max': c['tt_delay_max'], 'port': c['port'], 'running_port': PORT[0],
                     'fb_delay_min': c['fb_delay_min'], 'fb_delay_max': c['fb_delay_max'], 'delay_min': c['delay_min'], 'delay_max': c['delay_max'], 'data_dir': data_dir(),
-                    **{k: c[k] for k in ('ai_fps', 'ai_max_images', 'ai_stt_model', 'ai_vision', 'ai_comment_pages', 'ai_comments_send')}})
+                    **{k: c[k] for k in ('ai_fps', 'ai_max_images', 'ai_stt_model', 'ai_vision', 'ai_comment_pages', 'ai_comments_send', 'el_model', 'el_lang')}, 'ai_stt_provider': vai.stt_provider(c), 'el_key_masked': mask(c['el_key'])})
 @app.post('/api/config')
 def set_cfg():
     d = request.json or {}
-    if 'ai_key' in d and not d['ai_key']: d.pop('ai_key')   # empty = keep existing
+    for kk in ('ai_key', 'el_key'):
+        if kk in d and not d[kk]: d.pop(kk)   # empty = keep existing
     config.save(d); return get_cfg()
 
 def _check(plat, ck, extra=None):
@@ -269,6 +270,11 @@ def vision_test():
     b, k, m = ai_args(request.json or {})
     if not (b and k and m): return jsonify(ok=False, msg='请先填写接口地址、Key 并选择模型')
     ok, msg = vai.vision_test(b, k, m)
+    return jsonify(ok=ok, msg=msg)
+@app.post('/api/ai/stt_test')
+def stt_test():
+    d = request.json or {}; c = config.load()
+    ok, msg = vai.el_test((d.get('el_key') or '').strip() or c['el_key'], (d.get('el_model') or '').strip() or c['el_model'] or vai.EL_MODEL)
     return jsonify(ok=ok, msg=msg)
 @app.get('/api/ffmpeg')
 def ffmpeg_info():

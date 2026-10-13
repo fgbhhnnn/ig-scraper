@@ -34,9 +34,16 @@
 <label>识图模式<select id="ai_vision"><option value="">自动（不支持识图时自动改为纯文字）</option><option value="1">强制识图</option><option value="0">关闭识图（只看文案和评论）</option></select></label>
 <label>3 秒后每秒截图张数<select id="ai_fps"><option value="1">1 张/秒</option><option value="2">2 张/秒</option></select></label>
 <label>每次请求最多图片数（留空=不限）<input id="ai_max_images" type="number" min="1" placeholder="不限"></label>
-<label>语音转写模型（可选）<input id="ai_stt_model" placeholder="如 whisper-1，留空=不转写"></label>
 <label>评论最多翻页<input id="ai_comment_pages" type="number" min="1" max="50"></label>
 <label>发给 AI 的评论条数<input id="ai_comments_send" type="number" min="0" max="1000"></label></div>
+<h3>口播转写</h3><div class="row stt-row">
+<label>转写方式<select id="ai_stt_provider" onchange="sttShow()"><option value="off">关闭</option><option value="openai">OpenAI 兼容接口</option><option value="elevenlabs">ElevenLabs</option></select></label>
+<label class="stt-openai">语音转写模型<input id="ai_stt_model" placeholder="如 whisper-1（用上面的接口地址和 Key）"></label>
+<label class="stt-el">ElevenLabs API Key<input id="el_key" type="password" autocomplete="off" placeholder="sk_…"></label>
+<label class="stt-el">模型<select id="el_model"><option value="scribe_v2">scribe_v2（推荐，最新）</option><option value="scribe_v1">scribe_v1</option></select></label>
+<label class="stt-el">语言<select id="el_lang"><option value="">自动识别</option><option value="en">英语</option><option value="zh">中文</option><option value="es">西班牙语</option><option value="pt">葡萄牙语</option><option value="ar">阿拉伯语</option><option value="fr">法语</option><option value="de">德语</option><option value="ru">俄语</option><option value="ja">日语</option><option value="ko">韩语</option><option value="id">印尼语</option><option value="vi">越南语</option><option value="th">泰语</option><option value="tr">土耳其语</option></select></label></div>
+<div class="row stt-el"><button class="ghost" onclick="sttTest()">🎙 测试转写</button><span id="stmsg" class="hint">生成一段 1.5 秒提示音发给 ElevenLabs，检查 Key、权限和模型是否可用（消耗极少额度）</span></div>
+<p class="hint stt-el">ElevenLabs 返回逐词时间戳，程序会合并成带 [分:秒] 时间的句子一起发给 AI，让画像把口播和画面逐秒对齐。Key 只保存在本机配置文件里；请求走系统代理。Key 无效、额度不足或视频没有人声时自动跳过转写，不影响其余分析。</p>
 <p class="hint">开头 3 秒每秒截 4 张（钩子最关键），之后按上面设置每秒 1~2 张，另外在换镜头处自动补截一张；图片缩到 512 像素宽再发送。默认所有截图一次全部发给 AI；如果接口拒绝（图片太多/请求太大），会自动拆成几批依次发送再汇总，不会丢帧。也可以手动设置每次最多图片数。视频和截图只临时存放，分析结束（包括出错）后自动删除。</p>
 <h3>本地端口</h3><div class="row"><label>端口（默认 8765，修改后重启程序生效）<input id="port" type="number" min="1024" max="65535"></label></div>
 <h3>抓取节奏（每次请求间隔，秒）</h3><div class="row"><label>Instagram 最小<input id="delay_min" type="number" step="0.5" min="0.5"></label><label>Instagram 最大<input id="delay_max" type="number" step="0.5"></label><label>Facebook 最小<input id="fb_delay_min" type="number" step="0.5" min="0.5"></label><label>Facebook 最大<input id="fb_delay_max" type="number" step="0.5"></label><label>TikTok 最小<input id="tt_delay_min" type="number" step="0.5" min="0.5"></label><label>TikTok 最大<input id="tt_delay_max" type="number" step="0.5"></label></div><p class="hint">默认 1.5~3 秒，最小可设 0.5 秒；遇到 429 会自动等待，掉线会自动停止。</p>
@@ -181,6 +188,7 @@ MOQ
 <div class="hookline" id="a_hook" hidden><div class="hl-h">🎣 前 3 秒关键帧</div><div class="hl-strip" id="a_hookstrip"></div></div>
 <div class="tabs"><button id="t_profile" class="tab on" onclick="aTab('profile')">📊 视频画像</button><button id="t_replica" class="tab" onclick="aTab('replica')">🎬 一键复刻</button></div>
 <div id="pane_profile" class="pane"><nav class="toc" id="toc_profile"></nav><div class="cards" id="a_profile"></div></div>
+<details class="card trans" id="a_trans" hidden><summary class="card-h"><span class="ic">🎙</span><h4>口播转写</h4><span class="sub" id="a_trans_sub"></span><button class="ghost sm" onclick="event.preventDefault();cp(AREC.transcript||'')">复制</button><span class="chev">▾</span></summary><div class="card-b" id="a_trans_b"></div></details>
 <div id="pane_replica" class="pane" hidden><nav class="toc" id="toc_replica"></nav><div class="cards"><div class="rep-form">
 <div class="rf-head"><div><h3>🧾 我的产品信息</h3><p class="hint">AI 会复刻原视频的结构、节奏和钩子思路，并用你的产品重新写画面和文案（不照抄原视频）。填写的信息会自动记住。</p></div>
 <div class="seg"><button id="rf_m_form" class="on" onclick="rfMode('form')">分项填写</button><button id="rf_m_free" onclick="rfMode('free')">自由文本</button></div></div>
