@@ -296,8 +296,17 @@ def analysis(aid): return jsonify(db.get_analysis(aid) or {})
 def analysis_del(aid): db.delete_analysis(aid); return jsonify(ok=True)
 @app.post('/api/analyses/<int:aid>/replicate')
 def analysis_rep(aid):
-    try: return jsonify(ok=True, replica=vai.replicate(aid, (request.json or {}).get('product', '')))
+    d = request.json or {}; prod = d.get('product') or {}
+    if isinstance(prod, dict): config.save({'ai_product': prod})
+    try: vai.replicate_start(aid, prod); return jsonify(ok=True)
     except Exception as e: return jsonify(ok=False, error=f'生成失败: {e}')
+@app.get('/api/analyses/<int:aid>/replicate/status')
+def analysis_rep_status(aid):
+    st = vai.REP.get(aid)
+    if not st: return jsonify(running=False, text='', error=None, elapsed=0)
+    return jsonify(running=st['running'], text=st['text'], error=st['error'], elapsed=round(st.get('elapsed') or (time.time() - st['started']), 1))
+@app.get('/api/product')
+def get_product(): return jsonify(config.load().get('ai_product') or {})
 @app.get('/api/analyses/<int:aid>/md')
 def analysis_md(aid):
     a = db.get_analysis(aid)

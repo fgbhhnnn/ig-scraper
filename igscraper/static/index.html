@@ -141,8 +141,23 @@ MOQ
 <div class="hookline" id="a_hook" hidden><div class="hl-h">🎣 前 3 秒关键帧</div><div class="hl-strip" id="a_hookstrip"></div></div>
 <div class="tabs"><button id="t_profile" class="tab on" onclick="aTab('profile')">📊 视频画像</button><button id="t_replica" class="tab" onclick="aTab('replica')">🎬 一键复刻</button></div>
 <div id="pane_profile" class="pane"><nav class="toc" id="toc_profile"></nav><div class="cards" id="a_profile"></div></div>
-<div id="pane_replica" class="pane" hidden><nav class="toc" id="toc_replica"></nav><div class="cards"><div class="card rep-form"><div class="card-h"><span class="ic">🧾</span><h4>我的产品 / 需求信息</h4></div><div class="card-b">
-<textarea id="a_product" rows="4" placeholder="产品名、材质、卖点、价格/MOQ、目标市场、想发的平台和语言…&#10;例：硅胶折叠水杯，食品级硅胶，可定制logo，MOQ 500，主打欧美户外人群，发 TikTok 英文"></textarea>
-<div class="row"><button onclick="aRep()">✨ 生成复刻脚本</button><span id="a_rmsg"></span><span class="hint">只模仿结构和思路，文案和画面全部原创</span></div></div></div><div id="a_replica"></div></div></div>
+<div id="pane_replica" class="pane" hidden><nav class="toc" id="toc_replica"></nav><div class="cards"><div class="rep-form">
+<div class="rf-head"><div><h3>🧾 我的产品信息</h3><p class="hint">AI 会复刻原视频的结构、节奏和钩子思路，并用你的产品重新写画面和文案（不照抄原视频）。填写的信息会自动记住。</p></div>
+<div class="seg"><button id="rf_m_form" class="on" onclick="rfMode('form')">分项填写</button><button id="rf_m_free" onclick="rfMode('free')">自由文本</button></div></div>
+<div id="rf_form" class="rf-grid">
+<label>产品名称<input id="rf_name" placeholder="例：硅胶折叠水杯"></label>
+<label>MOQ / 价格<input id="rf_price" placeholder="例：MOQ 500，单价不公开（留空则用【】占位）"></label>
+<label class="wide">核心卖点<textarea id="rf_points" rows="2" placeholder="例：食品级硅胶、可折到 3cm、耐高温 200℃、多色可选"></textarea></label>
+<label>定制能力<input id="rf_custom" placeholder="例：可定制 logo、颜色、包装"></label>
+<label>目标市场 / 发布语言<input id="rf_market" placeholder="例：欧美户外人群，TikTok 英文"></label>
+<label>期望视频时长<select id="rf_duration"><option value="">跟原视频一致</option><option>7~10 秒</option><option>15 秒左右</option><option>30 秒左右</option><option>45~60 秒</option></select></label>
+<label>拍摄条件<input id="rf_shoot" placeholder="例：工厂车间，1 人手机拍摄，有样品和仓库"></label>
+<label class="wide">补充说明<textarea id="rf_extra" rows="2" placeholder="其他要求，例如：不出镜人脸、想突出交期快、避开某些说法…"></textarea></label></div>
+<div id="rf_free" hidden><textarea id="a_product" rows="7" placeholder="把产品和需求写在一起：产品名、材质、卖点、价格/MOQ、目标市场、平台和语言、拍摄条件…"></textarea></div>
+<div class="rf-go"><button class="big-primary" id="rf_btn" onclick="aRep()">✨ 生成复刻脚本</button><span id="a_rmsg"></span><span class="hint">约 2~4 分钟，可以切到别的页面，生成完会自动保存</span></div>
+<div id="rep_prog" class="rep-prog" hidden><div class="rp-h"><span class="spin"></span><b>AI 正在创作复刻脚本…</b><span class="rp-time" id="rp_time">0:00</span><span class="hint">通常约 3 分钟</span></div><div class="rp-bar"><div id="rp_bar"></div></div><div class="rp-prev md2" id="rp_prev"><p class="hint">等待 AI 开始输出…</p></div></div>
+</div>
+<div id="rep_vers" class="rep-vers" hidden></div>
+<div id="a_replica"></div></div></div>
 </div></div></div>
 </section></main><script src="/static/vendor/marked.min.js"></script><script src="/static/vendor/purify.min.js"></script><script src="/static/app.js"></script></body></html>

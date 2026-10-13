@@ -84,6 +84,7 @@ def init_analyses():
     with _lock, conn() as c:
         c.execute('''CREATE TABLE IF NOT EXISTS analyses(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, url TEXT, account TEXT, caption TEXT,
           meta TEXT, profile TEXT, vision INTEGER, frames INTEGER, transcript TEXT, note TEXT, created_at TEXT, product TEXT, replica TEXT)''')
+        if 'replicas' not in _cols(c, 'analyses'): c.execute('ALTER TABLE analyses ADD COLUMN replicas TEXT')
 def save_analysis(a):
     init_analyses()
     with _lock, conn() as c:
@@ -107,3 +108,9 @@ def list_analyses():
     return out
 def delete_analysis(aid):
     with _lock, conn() as c: c.execute('DELETE FROM analyses WHERE id=?', (aid,))
+def add_replica(aid, product, text, product_json=''):
+    import json, datetime
+    a = get_analysis(aid); vs = json.loads(a.get('replicas') or '[]')
+    if not vs and a.get('replica'): vs.append({'at': a.get('created_at', ''), 'product': a.get('product') or '', 'text': a['replica']})
+    vs.append({'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'product': product, 'text': text, 'product_json': product_json})
+    update_analysis(aid, product=product, replica=text, replicas=json.dumps(vs, ensure_ascii=False))

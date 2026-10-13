@@ -26,7 +26,7 @@ def clean_err(status, text):
     except Exception: pass
     return f'HTTP {status}: {str(t)[:300]}'
 
-def _post_chat(base, key, body, stream, timeout):
+def _post_chat(base, key, body, stream, timeout, on_delta=None):
     url = base.rstrip('/') + '/chat/completions'
     if not stream:
         r = requests.post(url, headers=_h(key), json=body, timeout=timeout)
@@ -53,16 +53,18 @@ def _post_chat(base, key, body, stream, timeout):
             if j.get('error'): raise AIError(clean_err(400, json.dumps(j)), 400, d)
             for ch in j.get('choices') or []:
                 c = (ch.get('delta') or {}).get('content') or (ch.get('message') or {}).get('content')
-                if c: out.append(c)
+                if c:
+                    out.append(c)
+                    if on_delta: on_delta(c)
         return ''.join(out)
 
 STREAM = {'ok': True}
-def chat(base, key, model, content, system=None, max_tokens=None, timeout=900, retries=3):
+def chat(base, key, model, content, system=None, max_tokens=None, timeout=900, retries=3, on_delta=None):
     msgs = ([{'role': 'system', 'content': system}] if system else []) + [{'role': 'user', 'content': content}]
     body = {'model': model, 'messages': msgs, 'temperature': 0.6}
     if max_tokens: body['max_tokens'] = max_tokens
     for t in range(retries):
-        try: return _post_chat(base, key, body, STREAM['ok'], timeout)
+        try: return _post_chat(base, key, body, STREAM['ok'], timeout, on_delta)
         except requests.RequestException as e:
             if t == retries - 1: raise AIError(f'网络错误/超时: {str(e)[:150]}', 524 if isinstance(e, requests.Timeout) else 0)
             time.sleep(5)
@@ -154,7 +156,7 @@ def replicate_prompt(profile, product, M):
 
 请基于这个画像为我的产品「一键复刻」一条新视频。要求：
 1. 复刻的是结构、节奏、钩子思路和情绪设计；文案、台词、画面必须全部原创，不得照抄原视频的原话、字幕或标志性画面。
-2. 总时长与原视频接近；分镜数量与节奏参照画像里的「结构与节奏」，每个镜头在备注里写明对应原视频的哪一段（如“对应原 0~3s 钩子”）。
+2. 总时长与原视频接近（如果我填写了期望视频时长，以我的为准）；拍摄方案要符合我填写的拍摄条件；分镜数量与节奏参照画像里的「结构与节奏」，每个镜头在备注里写明对应原视频的哪一段（如“对应原 0~3s 钩子”）。
 3. 前 3 秒要有同等强度的钩子，写清楚具体拍什么、怎么动、屏幕上打什么字。
 4. 把上面评论区最常见的 3~5 个问题（价格、起订量、定制、发货等）提前在视频画面/字幕或文案里回答或引导私信，不要编造我没给的具体数字，用【】留空。
 5. 拍摄要求要具体到普通工厂/个人能执行（机位、景别、道具、手部动作），不要写空泛的形容词。
@@ -367,13 +369,40 @@ class AnalyzeTask(Task):
                 if vmode != '1' and _no_vision(e): return text_only(f'模型不支持识图（{str(e)[:120]}）')
                 raise
 
-def replicate(aid, product):
+PRODUCT_FIELDS = [('name', '产品名称'), ('points', '核心卖点'), ('price', 'MOQ / 价格'), ('custom', '定制能力'), ('market', '目标市场 / 发布语言'),
+                  ('duration', '期望视频时长'), ('shoot', '拍摄条件'), ('extra', '补充说明')]
+def product_text(p):
+    """结构化产品信息 dict -> 给 AI 的文字；也接受纯文字"""
+    if isinstance(p, str): return p.strip()
+    lines = [f'{lbl}：{str(p.get(k) or "").strip()}' for k, lbl in PRODUCT_FIELDS if str(p.get(k) or '').strip()]
+    if str(p.get('free') or '').strip(): lines.append(str(p['free']).strip())
+    return '\n'.join(lines)
+
+REP = {}   # aid -> {running, text, started, error}
+def replicate_start(aid, product):
     a = db.get_analysis(aid)
     if not a: raise RuntimeError('分析记录不存在')
     cfg = config.load()
     if not (cfg['ai_base'] and cfg['ai_key'] and cfg['ai_model']): raise RuntimeError('请先在「AI 设置」里填写接口并选择模型')
-    out = chat(cfg['ai_base'], cfg['ai_key'], cfg['ai_model'], replicate_prompt(a['profile'], product, json.loads(a['meta'] or '{}')), SYS)
-    db.update_analysis(aid, product=product, replica=out); return out
+    if REP.get(aid, {}).get('running'): raise RuntimeError('这条正在生成中')
+    st = REP[aid] = {'running': True, 'text': '', 'started': time.time(), 'error': None}
+    ptxt = product_text(product)
+    def run():
+        buf = []
+        def on(d): buf.append(d); st['text'] = ''.join(buf)
+        try:
+            out = chat(cfg['ai_base'], cfg['ai_key'], cfg['ai_model'], replicate_prompt(a['profile'], ptxt, json.loads(a['meta'] or '{}')), SYS, on_delta=on)
+            st['text'] = out; db.add_replica(aid, ptxt, out, json.dumps(product, ensure_ascii=False) if not isinstance(product, str) else '')
+        except Exception as e: st['error'] = str(e)
+        finally: st['running'] = False; st['elapsed'] = time.time() - st['started']
+    import threading; threading.Thread(target=run, daemon=True).start()
+    return st
+
+def replicate(aid, product):
+    st = replicate_start(aid, product)
+    while st['running']: time.sleep(0.5)
+    if st['error']: raise RuntimeError(st['error'])
+    return st['text']
 
 def to_markdown(a):
     M = json.loads(a['meta'] or '{}')

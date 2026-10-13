@@ -98,13 +98,16 @@ function splitSec(t){const out=[];let cur={title:'',body:[]};(t||'').split('\n')
 function decorate(root){const W=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('code,pre,a,.ts')?2:1});const ns=[];while(W.nextNode())ns.push(W.currentNode);
  const re=/(\d{1,3}(?:\.\d{1,2})?\s*(?:s|秒)?\s*[–\-~～至]\s*\d{1,3}(?:\.\d{1,2})?\s*(?:s|秒)|\b\d{1,3}(?:\.\d{1,2})?s\b)/g;
  ns.forEach(n=>{if(!re.test(n.nodeValue))return;re.lastIndex=0;const f=document.createElement('span');f.innerHTML=esc(n.nodeValue).replace(re,'<span class="ts">$1</span>');n.replaceWith(...f.childNodes)});
- root.querySelectorAll('code').forEach(c=>{if(!c.closest('pre'))c.classList.add('quote')});root.querySelectorAll('table').forEach(t=>{const w=document.createElement('div');w.className='tblw';t.replaceWith(w);w.appendChild(t)})}
+ root.querySelectorAll('code').forEach(c=>{if(!c.closest('pre'))c.classList.add('quote')});
+ const W2=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('.blank')?2:1});const bs=[];while(W2.nextNode())if(/【[^】]*】/.test(W2.currentNode.nodeValue))bs.push(W2.currentNode);
+ bs.forEach(n=>{const f=document.createElement('span');f.innerHTML=esc(n.nodeValue).replace(/【([^】]*)】/g,(m,x)=>`<span class="blank" title="需要你自己填写">${x||'待填写'}</span>`);n.replaceWith(...f.childNodes)});
+ root.querySelectorAll('pre').forEach(p=>{const b=document.createElement('button');b.className='pre-copy';b.textContent='复制';b.onclick=()=>cp(p.innerText.replace(/\n?复制$/,''));p.classList.add('has-copy');p.appendChild(b)});root.querySelectorAll('table').forEach(t=>{const w=document.createElement('div');w.className='tblw';t.replaceWith(w);w.appendChild(t)})}
 function storyboard(body){const m=body.match(/^\|.*\|\s*\n\|[\s:|-]+\|\s*\n(?:\|.*\|\s*\n?)+/m);if(!m)return null;const rows=m[0].trim().split('\n').filter((l,i)=>i!==1).map(l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()));
  const hd=rows.shift();const cards=rows.map(r=>`<div class="shot"><div class="shot-h"><span class="shot-no">${esc(r[0])}</span><span class="ts big">${esc(r[1]||'')}</span></div>${hd.slice(2).map((h,i)=>r[i+2]?`<div class="shot-f"><label>${esc(h)}</label><div>${mdHtml(r[i+2])}</div></div>`:'').join('')}</div>`).join('');
  return{before:body.slice(0,m.index),cards,after:body.slice(m.index+m[0].length)}}
 function renderSecs(kind,text){const box=$('a_'+kind),toc=$('toc_'+kind);const secs=splitSec(text);if(kind==='profile'||!text){}
  box.innerHTML=secs.map((x,i)=>{const ic=(ICONS.find(k=>x.title.includes(k[0]))||[0,'📝'])[1];const title=x.title||'概述';let bodyH;const sb=x.title.includes('分镜')&&storyboard(x.body);
-  bodyH=sb?mdHtml(sb.before)+`<div class="board">${sb.cards}</div>`+mdHtml(sb.after):mdHtml(x.body);
+  bodyH=sb?mdHtml(sb.before)+`<div class="board">${sb.cards}</div>`+mdHtml(sb.after):kind==='replica'&&x.title.includes('标签')?tagsHtml(x.body):kind==='replica'&&x.title.includes('封面')?coverHtml(x.body):kind==='replica'&&x.title.includes('发布建议')?tipsHtml(x.body):mdHtml(x.body);
   return`<details class="card" open id="${kind}_s${i}"><summary class="card-h"><span class="ic">${ic}</span><h4>${esc(title.replace(/（.*?）$/,''))}</h4><span class="sub">${esc((title.match(/（(.*?)）$/)||['',''])[1])}</span><button class="ghost sm" onclick="event.preventDefault();secCopy('${kind}',${i})">复制</button><span class="chev">▾</span></summary><div class="card-b md2">${bodyH}</div></details>`}).join('');
  decorate(box);toc.innerHTML=secs.length>1?'<b>目录</b>'+secs.map((x,i)=>`<a onclick="document.getElementById('${kind}_s${i}').open=true;document.getElementById('${kind}_s${i}').scrollIntoView({behavior:'smooth',block:'start'})">${(ICONS.find(k=>x.title.includes(k[0]))||[0,'📝'])[1]} ${esc((x.title||'概述').replace(/（.*?）$/,'').replace(/^[一二三四五六七八九十]+、/,''))}</a>`).join(''):'';SECS[kind]=secs}
 const SECS={};
@@ -119,7 +122,29 @@ async function aOpen(id){AID=id;const a=AREC=await api('/api/analyses/'+id);cons
  const ch=[['▶','播放',fmtN(M.plays)],['♥','点赞',fmtN(M.likes)],['💬','评论',fmtN(M.comments)],['↗','分享',fmtN(M.shares)],['⏱','时长',(+M.duration||0).toFixed(1)+'s'],['🖼','截图',a.frames+' 帧'],['❓','提问评论',`${M.question_n??0}/${M.comment_n??0}`],['📅','发布',M.date||'-']];
  $('a_chips').innerHTML=ch.map(c=>`<span class="chip"><i>${c[0]}</i>${c[1]} <b>${esc(c[2])}</b></span>`).join('')+`<span class="chip ${a.vision?'ok':'warn'}">${a.vision?'✓ 识图分析':'⚠ 纯文字分析'}</span>`;
  $('a_cap').textContent=a.caption||'';const th=M.hook_thumbs||[];$('a_hook').hidden=!th.length;$('a_hookstrip').innerHTML=th.map(x=>`<figure><img src="${x.img}"><figcaption>${x.t.toFixed(2)}s</figcaption></figure>`).join('');
- renderSecs('profile',a.profile);renderSecs('replica',a.replica||'');$('a_product').value=a.product||localStorage.a_product||'';aList()}
-async function aRep(){if(!AID)return;localStorage.a_product=$('a_product').value;msg('a_rmsg','生成中…（约 30 秒 ~ 2 分钟）',1);const d=await api('/api/analyses/'+AID+'/replicate',{product:$('a_product').value});if(!d.ok)return msg('a_rmsg',d.error);msg('a_rmsg','✅ 已生成并保存',1);await aOpen(AID);aTab('replica')}
+ renderSecs('profile',a.profile);renderSecs('replica',a.replica||'');repVersions(a);rfLoad();repPoll(id);aList()}
 async function aCopy(w){if(!AREC)return;cp(w==='profile'?AREC.profile:w==='replica'?(AREC.replica||''):await(await fetch('/api/analyses/'+AID+'/md?raw=1')).text())}
 async function aDel(){if(AID&&confirm('删除这条分析记录？')){await api('/api/analyses/'+AID+'/delete',{});AID=null;$('a_view').hidden=true;$('a_empty').hidden=false;aList()}}
+
+function tagsHtml(body){const all=[];let h='',chips=[];const flush=()=>{if(chips.length){h+=`<div class="tagcloud">${chips.map(t=>`<button class="tagchip" onclick="cp('${t}')" title="点击复制">${esc(t)}</button>`).join('')}</div>`;chips=[]}};
+ body.split('\n').forEach(l=>{const ts=l.match(/#[\p{L}\p{N}_]+/gu);if(ts&&ts.length>=2){const lbl=l.replace(/#[\p{L}\p{N}_]+/gu,'').replace(/[`\s,，、]+/g,' ').replace(/^[-*]\s*/,'').trim();if(lbl){flush();h+=`<div class="tg-l">${esc(lbl.replace(/[:：]$/,''))}</div>`}ts.forEach(t=>{if(!all.includes(t))all.push(t);chips.push(t)})}else if(l.trim()){if(/^\*\*.*\*\*[:：]?$|^#{3,4}\s|^[^\s].{0,20}[（(]\d+[)）][:：]?$/.test(l.trim())){flush();h+=`<div class="tg-l">${esc(l.replace(/[*#]/g,'').trim())}</div>`}else{flush();h+=mdHtml(l)}}});flush();
+ return`<div class="tg-bar"><span class="hint">共 ${all.length} 个标签，点击单个复制</span><button class="ghost sm" onclick="cp('${all.join(' ')}')">复制全部标签</button></div>`+h}
+function coverHtml(body){const parts=body.split(/\n(?=\*\*方案|#{3,4}\s*方案|方案\s*\d)/);if(parts.length<3)return mdHtml(body);const intro=/方案/.test(parts[0].slice(0,12))?'':parts.shift();const tail=parts.length?parts[parts.length-1].split(/\n\n(?!\s)/):[];let outro='';if(tail.length>1){outro=tail.slice(1).join('\n\n');parts[parts.length-1]=tail[0]}
+ return mdHtml(intro)+`<div class="covers">${parts.map((p,i)=>{const t=(p.split('\n')[0]||'').replace(/[*#]/g,'').trim();return`<div class="cover"><div class="cv-n">${i+1}</div><div class="cv-t">${esc(t)}</div><div class="md2">${mdHtml(p.split('\n').slice(1).join('\n'))}</div></div>`}).join('')}</div>`+mdHtml(outro)}
+function tipsHtml(body){const parts=body.split(/\n(?=\*\*[^*\n]{2,30}\*\*\s*$|#{3,4}\s)/m);if(parts.length<2)return mdHtml(body);const IC=[['时间','🕒'],['置顶','📌'],['回复','💬'],['话术','💬'],['注意','⚠️'],['复测','🔁']];
+ return`<div class="tips">${parts.filter(p=>p.trim()).map(p=>{const ls=p.trim().split('\n');const t=ls[0].replace(/[*#]/g,'').trim();const ic=(IC.find(k=>t.includes(k[0]))||[0,'✅'])[1];return`<div class="tip"><div class="tip-h"><span>${ic}</span><b>${esc(t)}</b></div><div class="md2">${mdHtml(ls.slice(1).join('\n'))}</div></div>`}).join('')}</div>`}
+const RF=['name','points','price','custom','market','duration','shoot','extra'];
+function rfMode(m){$('rf_form').hidden=m!=='form';$('rf_free').hidden=m==='form';$('rf_m_form').classList.toggle('on',m==='form');$('rf_m_free').classList.toggle('on',m!=='form');localStorage.rf_mode=m}
+async function rfLoad(){const p=await api('/api/product');RF.forEach(k=>{if(p[k]!=null)$('rf_'+k).value=p[k]});if(p.free)$('a_product').value=p.free;rfMode(p.mode||localStorage.rf_mode||'form')}
+function rfGet(){const m=$('rf_form').hidden?'free':'form';const p={mode:m};if(m==='form')RF.forEach(k=>p[k]=$('rf_'+k).value.trim());else p.free=$('a_product').value.trim();return p}
+let repTimer=null;
+async function aRep(){if(!AID)return;const p=rfGet();if(p.mode==='form'?!RF.some(k=>p[k]):!p.free)return msg('a_rmsg','请至少填写产品名称或卖点');
+ const d=await api('/api/analyses/'+AID+'/replicate',{product:p});if(!d.ok)return msg('a_rmsg',d.error);msg('a_rmsg','',1);repPoll(AID)}
+async function repPoll(id){clearTimeout(repTimer);if(id!==AID)return;const s=await api('/api/analyses/'+id+'/replicate/status');const on=s.running;$('rep_prog').hidden=!on;$('rf_btn').disabled=on;$('rf_btn').textContent=on?'⏳ 生成中…':'✨ 生成复刻脚本';
+ if(on){const e=Math.floor(s.elapsed);$('rp_time').textContent=Math.floor(e/60)+':'+String(e%60).padStart(2,'0');$('rp_bar').style.width=Math.min(95,e/180*100)+'%';if(s.text){$('rp_prev').innerHTML=mdHtml(s.text);decorate($('rp_prev'));$('rp_prev').scrollTop=1e9}repTimer=setTimeout(()=>repPoll(id),1000)}
+ else if(repPoll.was===id){repPoll.was=null;if(s.error)return msg('a_rmsg','❌ '+s.error);msg('a_rmsg',`✅ 已生成并保存（用时 ${Math.round(s.elapsed)} 秒）`,1);await aOpen(id);aTab('replica')}
+ if(on)repPoll.was=id}
+function repVersions(a){const vs=JSON.parse(a.replicas||'[]');if(!vs.length&&a.replica)vs.push({at:a.created_at,product:a.product,text:a.replica});const box=$('rep_vers');box.hidden=vs.length<1;
+ box.innerHTML=vs.length?`<span class="hint">历史版本：</span>`+vs.map((v,i)=>`<button class="vchip ${i===vs.length-1?'on':''}" title="${esc((v.product||'').slice(0,200))}" onclick="repShow(${i})">版本 ${i+1}<small>${esc((v.at||'').slice(5,16))}</small></button>`).join(''):'';REPV=vs}
+let REPV=[];
+function repShow(i){document.querySelectorAll('.vchip').forEach((b,j)=>b.classList.toggle('on',i===j));renderSecs('replica',REPV[i].text);AREC.replica=REPV[i].text}
