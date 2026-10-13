@@ -346,16 +346,17 @@ def fetch_meta(pl, c, url, row=None):
                 for ch in r.iter_content(65536): f.write(ch)
         return M, (vv[0]['url'] if vv else None), dl
     # facebook
-    it = c.resolve(url)
-    r = c.nav(it['url'], 'https://www.facebook.com/'); t = r.text if r else ''
+    from .fb import video_url, page_stats
+    it = c.resolve(url); t = getattr(c, 'last_html', '') or ''
+    if not t:
+        r = c.nav(it['url'], 'https://www.facebook.com/'); t = r.text if r else ''
     js = lambda p: (lambda m: json.loads('"' + m.group(1) + '"') if m else None)(re.search(p, t))
-    vurl = (js(r'"browser_native_hd_url":"((?:[^"\\]|\\.)+)"') or js(r'"playable_url_quality_hd":"((?:[^"\\]|\\.)+)"') or
-            js(r'"browser_native_sd_url":"((?:[^"\\]|\\.)+)"') or js(r'"playable_url":"((?:[^"\\]|\\.)+)"'))
+    vurl = video_url(t, it['shortcode'] if it['shortcode'].isdigit() else '')
     cap = js(r'"message":\{(?:"delight_ranges":\[\],)?(?:"[a-z_]+":[^{}]*?,)*?"text":"((?:[^"\\]|\\.)*)"') or row.get('caption') or ''
-    pc = re.search(r'"play_count":(\d+)', t) or re.search(r'"video_view_count":(\d+)', t)
+    st = page_stats(t, it['shortcode'] if it['shortcode'].isdigit() else ''); g = lambda k, rk: st[k] if st[k] is not None else row.get(rk)
     M = dict(platform='facebook', url=it['url'], shortcode=it['shortcode'], account=it.get('account') or row.get('account', ''), caption=cap, tags=_tags(cap),
-             plays=int(pc.group(1)) if pc else row.get('plays'), likes=row.get('likes'), comments=row.get('comment_count'), shares=row.get('shares'),
-             date=row.get('publish_date', ''), duration=0.0, _item=it)
+             plays=g('plays', 'plays'), likes=g('likes', 'likes'), comments=g('comments', 'comment_count'), shares=g('shares', 'shares'),
+             date=st['date'] or row.get('publish_date', ''), duration=st['duration'], _item=it)
     def dl(vu, path):
         r = c.s.get(vu, timeout=300, stream=True, headers={'Referer': 'https://www.facebook.com/'})
         if r.status_code != 200: raise RuntimeError(f'视频下载失败 HTTP {r.status_code}')

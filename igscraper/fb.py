@@ -32,6 +32,68 @@ def parse_cookie(raw):
     from .ig import parse_cookie as p
     return p(raw)
 
+def _jstr(x):
+    try: return json.loads('"' + x + '"')
+    except Exception: return x
+
+def page_owner(t, vid=''):
+    """作者名：owning_profile / owner / actors 里的 id，再找同一对象里的 name（字段顺序不固定）"""
+    ids = []
+    for p in (r'"owning_profile":\{"__typename":"\w+",(?:"[^"]+":"[^"]*",)*?"id":"(\d+)"', r'"owner":\{"__typename":"\w+","id":"(\d+)"',
+              r'"actors":\[\{"__typename":"\w+",(?:"[^"]+":"[^"]*",)*?"id":"(\d+)"', r'content_owner_id_new\\?":\\?"(\d+)'):
+        m = re.search(p, t)
+        if m and m.group(1) not in ids: ids.append(m.group(1))
+    for i in ids:
+        for p in (r'"id":"%s"[^{}]{0,600}?"name":"((?:[^"\\]|\\.)+)"' % i, r'"name":"((?:[^"\\]|\\.)+)"[^{}]{0,300}?"id":"%s"' % i):
+            m = re.search(p, t)
+            if m: return _jstr(m.group(1)), i
+    return '', (ids[0] if ids else '')
+
+def video_url(t, vid=''):
+    """视频直链：新版页面在 videoDeliveryLegacyFields.progressive_urls（带 HD/SD 标记），旧版是 browser_native_*/playable_url*"""
+    best = None
+    for m in re.finditer(r'"progressive_urls":(\[)', t):
+        i = m.start(1); d = 0; j = i
+        for k in range(i, min(len(t), i + 20000)):
+            if t[k] == '[': d += 1
+            elif t[k] == ']':
+                d -= 1
+                if d == 0: j = k + 1; break
+        try: arr = json.loads(t[i:j])
+        except Exception: continue
+        us = {((a.get('metadata') or {}).get('quality') or '').upper(): a.get('progressive_url') for a in arr if a.get('progressive_url')}
+        u = us.get('HD') or us.get('SD') or next(iter(us.values()), None)
+        if not u: continue
+        nid = re.search(r'"id":"(\d+)"', t[j:j + 1500])
+        mine = bool(vid) and bool(nid) and nid.group(1) == vid
+        if mine: return u
+        best = best or u
+    for p in (r'"browser_native_hd_url":"((?:[^"\\]|\\.)+)"', r'"playable_url_quality_hd":"((?:[^"\\]|\\.)+)"',
+              r'"browser_native_sd_url":"((?:[^"\\]|\\.)+)"', r'"playable_url":"((?:[^"\\]|\\.)+)"'):
+        m = re.search(p, t)
+        if m: return _jstr(m.group(1))
+    return best
+
+def page_stats(t, vid=''):
+    """页面里常带着推荐的其他视频，数字取离本视频 id 最近的那个"""
+    vp = [m.start() for m in re.finditer(re.escape(vid), t)] if vid else []
+    def n(*ps):
+        for p in ps:
+            ms = list(re.finditer(p, t))
+            if not ms: continue
+            if not vp: return int(ms[0].group(1))
+            import bisect
+            def dist(m):
+                i = bisect.bisect_left(vp, m.start()); return min(abs(vp[j] - m.start()) for j in (i - 1, i) if 0 <= j < len(vp))
+            return int(min(ms, key=dist).group(1))
+        return None
+    ts = n(r'"creation_time":(\d{9,})', r'"publish_time":(\d{9,})')
+    dur = re.search(r'"playable_duration_in_ms":(\d+)', t) or None
+    return {'plays': n(r'"play_count":(\d+)', r'"video_view_count":(\d+)'), 'likes': n(r'"reaction_count":\{"count":(\d+)', r'"unified_reactors":\{"count":(\d+)'),
+            'comments': n(r'"total_comment_count":(\d+)', r'"comments":\{"total_count":(\d+)', r'"comment_count":\{"total_count":(\d+)'),
+            'shares': n(r'"share_count":\{"count":(\d+)'), 'date': time.strftime('%Y-%m-%d', time.localtime(ts)) if ts else '',
+            'duration': int(dur.group(1)) / 1000 if dur else 0.0}
+
 class FB:
     def __init__(self, cookie, dmin=1.5, dmax=3.0, log=print, stop=lambda: False, on_cookie=None, docs=None):
         self.log, self.stop, self.on_cookie = log, stop, on_cookie
@@ -282,7 +344,7 @@ class FB:
             from collections import Counter
             fid = Counter(f for _, f in fids).most_common(1)[0][0]
         if not fid: raise RuntimeError('页面里没有找到 feedback id（可能需要登录或链接无效）')
-        own = re.search(r'"owning_profile":\{"__typename":"\w+","name":"((?:[^"\\]|\\.)*)","id":"(\d+)"', t)
-        name = json.loads('"' + own.group(1) + '"') if own else ''
+        name, oid = page_owner(t, vid)
+        self.last_html = t
         return {'platform': 'facebook', 'shortcode': vid or fid, 'media_id': fid, 'url': u, 'account': name,
-                'owner_id': own.group(2) if own else '', 'caption': '', 'content_type': 'video' if '/reel/' in u or '/videos/' in u else 'post'}
+                'owner_id': oid, 'caption': '', 'content_type': 'video' if '/reel/' in u or '/videos/' in u else 'post'}
