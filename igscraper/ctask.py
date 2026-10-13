@@ -49,6 +49,7 @@ class CommentTask(Task):
                 from .tt import TT, parse_session
                 c = TT(parse_session(cfg['tt_cookie'], cfg.get('tt_ms_token'), cfg.get('tt_device_id'), cfg.get('tt_user_agent')),
                        float(cfg['tt_delay_min']), float(cfg['tt_delay_max']), self.log, stopf)
+                uid, un = c.me(); self.log(f'TikTok 已登录 {un or uid}')
             clients[pl] = c; return c
         total = 0
         for n, it in enumerate(items, 1):

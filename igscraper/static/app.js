@@ -80,3 +80,5 @@ async function cClear(){if(confirm('确定清空评论库？')){await api('/api/
 
 function platUI(){const p=$('platform').value;document.querySelectorAll('#p-task [data-plat]').forEach(e=>e.hidden=!e.dataset.plat.split(' ').includes(p))}
 document.addEventListener('DOMContentLoaded',()=>{$('platform').addEventListener('change',platUI);setTimeout(platUI,300);const h=$('c_help');if(!localStorage.getItem('c_help_seen')){h.open=true;localStorage.setItem('c_help_seen','1')}});
+
+async function ttDiag(){const p=$('ttdiag');p.hidden=false;p.textContent='诊断中…（约 5~10 秒）';const d=await api('/api/tt/diag',{});p.textContent=(d.lines||[]).join('\n')}

@@ -19,7 +19,25 @@ def parse_session(raw_cookie, ms_token='', device_id='', user_agent=''):
     return {'cookie': ck, 'ms_token': (ms_token or '').strip() or C.get('msToken', ''), 'device_id': did,
             'user_agent': (user_agent or '').strip() or DEFAULT_UA,
             'odin': urllib.parse.unquote(C.get('multi_sids', '')).split(':')[0], 'verify_fp': C.get('s_v_web_id', ''),
-            'logged_in': bool(C.get('sessionid') or C.get('sid_tt'))}
+            'logged_in': bool(C.get('sessionid') or C.get('sid_tt')), 'region': region_of(ck)}
+
+def sys_proxies():
+    """Proxy from env or (Windows) system settings, e.g. Clash/v2rayN 'system proxy'. curl_cffi does not read these itself."""
+    try:
+        import urllib.request
+        p = urllib.request.getproxies()
+        u = p.get('https') or p.get('http') or p.get('all')
+        if u and '://' not in u: u = 'http://' + u
+        return {'http': u, 'https': u} if u else None
+    except Exception: return None
+
+def region_of(cookie):
+    """Guess account region from store-idc / tt-target-idc cookie (useast* -> US, alisg -> SG, ...)."""
+    m = re.search(r'(?:^|;\s*)(?:store-idc|tt-target-idc)=([a-z0-9-]+)', cookie or '')
+    idc = m.group(1) if m else ''
+    if idc.startswith(('useast', 'uswest', 'no1a', 'maliva')): return 'US'
+    if idc.startswith('eu') or idc.startswith('gcp'): return 'GB'
+    return 'SG'
 
 class TT:
     def __init__(self, sess, dmin=1.5, dmax=3.0, log=print, stop=lambda: False):
@@ -30,12 +48,21 @@ class TT:
                   'sec-ch-ua': f'"Google Chrome";v="{v}", "Not_A Brand";v="8", "Chromium";v="{v}"', 'sec-ch-ua-platform': '"Windows"',
                   'sec-ch-ua-mobile': '?0', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'same-origin', 'priority': 'u=1, i'}
         self.wit = str(int(time.time()))
+        self.proxies = sys_proxies(); self.skew = None
 
     def _sleep(self, s):
         end = time.time() + s
         while time.time() < end and not self.stop(): time.sleep(0.2)
     def _http(self, url, ref):
-        return self.creq.get(url, headers=dict(self.H, Referer=ref), timeout=30, impersonate='chrome', default_headers=False, http_version='v2')
+        r = self.creq.get(url, headers=dict(self.H, Referer=ref), timeout=30, impersonate='chrome', default_headers=False,
+                          http_version='v2', proxies=self.proxies)
+        if self.skew is None and r.headers.get('date'):
+            try:
+                import email.utils
+                self.skew = time.time() - email.utils.parsedate_to_datetime(r.headers['date']).timestamp()
+                if abs(self.skew) > 120: self.log(f'⚠️ 电脑时间与 TikTok 服务器相差 {int(self.skew)} 秒，签名可能失效：请在 Windows 设置里「立即同步」时间')
+            except Exception: pass
+        return r
 
     def base(self, extra, ref, from_page, app_lang='zh-Hans'):
         S = self.S
@@ -43,7 +70,7 @@ class TT:
                  browser_name='Mozilla', browser_online='true', browser_platform='Win32', browser_version=S['user_agent'].split('Mozilla/', 1)[-1],
                  channel='tiktok_web', cookie_enabled='true', data_collection_enabled='true', device_id=S['device_id'], device_platform='web_pc',
                  focus_state='true', from_page=from_page, history_len='3', is_fullscreen='false', is_page_visible='true', odinId=S['odin'] or S['device_id'],
-                 os='windows', priority_region='SG', referer=ref, region='SG', root_referer=ref, screen_height='1080', screen_width='1920',
+                 os='windows', priority_region=S.get('region') or 'SG', referer=ref, region=S.get('region') or 'SG', root_referer=ref, screen_height='1080', screen_width='1920',
                  tz_name='Asia/Shanghai', user_is_login='true', verifyFp=S['verify_fp'], webcast_language='zh-Hans')
         p.update(extra)
         return urllib.parse.urlencode(sorted(p.items()), quote_via=lambda s, *a, **k: urllib.parse.quote(s, safe=''))
@@ -65,7 +92,7 @@ class TT:
                 w = 60 * (t + 1); self.log(f'TikTok 429 限流，等待 {w}s'); self._sleep(w); continue
             if not r.content:
                 empty += 1
-                if empty >= 2: raise Blocked('TikTok 返回空响应（被风控/签名失效）。请重新导出完整 Cookie、msToken 和 device_id 后再试')
+                if empty >= 2: raise Blocked(self.empty_hint(r))
                 self.log('TikTok 返回空响应，等待 30s 后重试'); self._sleep(30); continue
             try: d = r.json()
             except Exception: self.log(f'TikTok 非 JSON 响应 HTTP {r.status_code}'); return None
@@ -85,7 +112,33 @@ class TT:
         try: d = r.json().get('data') or {}
         except Exception: d = {}
         if not d.get('user_id_str'): raise Blocked('TikTok 未登录：Cookie 需包含 sessionid（Cookie-Editor 导出 JSON 即可）')
+        if not self.S.get('odin'): self.S['odin'] = d.get('user_id_str')     # multi_sids missing -> use account uid
         return d.get('user_id_str'), d.get('username') or d.get('screen_name') or ''
+
+    def empty_hint(self, r):
+        why = []
+        if self.skew is not None and abs(self.skew) > 120: why.append(f'电脑时间相差 {int(self.skew)} 秒（请同步系统时间）')
+        why.append(f'代理：{self.proxies["https"] if self.proxies else "未检测到系统代理（直连）"}')
+        why.append(f'HTTP {r.status_code}')
+        return ('TikTok 返回空响应（签名/环境被拒）。' + '；'.join(why) +
+                '。常见原因：①电脑时间不准；②网络出口与登录地区不一致或代理不稳定（可换节点后重试）；'
+                '③Cookie 不是同一个浏览器里刚导出的。可在 Cookie 页点「TikTok 诊断」查看详细信息')
+
+    def diag(self):
+        """Step-by-step check for the Cookie page."""
+        out = [f'代理：{self.proxies["https"] if self.proxies else "未检测到系统代理（直连）"}',
+               f'device_id：{self.S["device_id"] or "缺少"}；msToken：{"有" if self.S["ms_token"] else "缺少"}（{len(self.S["ms_token"])} 位）；'
+               f'verifyFp(s_v_web_id)：{"有" if self.S["verify_fp"] else "缺少"}；地区参数：{self.S.get("region")}']
+        try:
+            uid, name = self.me(); out.append(f'✅ 登录：{name or uid}（odinId={self.S["odin"]}）')
+        except Exception as e: out.append(f'❌ 登录检查：{e}'); return out
+        if self.skew is not None: out.append(('✅' if abs(self.skew) <= 120 else '❌') + f' 电脑时间误差 {int(self.skew)} 秒')
+        try:
+            n = 0
+            for _ in self.search('handbag', 1): n += 1
+            out.append(f'✅ 搜索：{n} 条' if n else '❌ 搜索：0 条')
+        except Exception as e: out.append(f'❌ 搜索：{e}')
+        return out
 
     @staticmethod
     def norm(i, source):

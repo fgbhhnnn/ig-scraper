@@ -56,6 +56,7 @@ def set_cookie():
         sess = parse_session(ck, extra.get('tt_ms_token'), extra.get('tt_device_id'), extra.get('tt_user_agent'))
         if not sess['logged_in']: return jsonify(ok=False, error='缺少 sessionid（HttpOnly）。请用 Cookie-Editor 导出 JSON，普通 document.cookie 拿不到'), 400
         if 'tt_device_id' in extra: extra['tt_device_id'] = sess['device_id']
+        if d.get('cookie') and ck != config.load()['tt_cookie'] and not extra.get('tt_ms_token'): extra['tt_ms_token'] = ''   # new login: drop old saved msToken, use the cookie's
     else:
         need = 'c_user=' if plat == 'facebook' else 'sessionid='
         if need not in ck or (plat == 'facebook' and 'xs=' not in ck):
@@ -169,6 +170,17 @@ def run(open_browser=True, port=None):
     if open_browser: threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run('127.0.0.1', port, threaded=True, use_reloader=False)
     return 0
+
+@app.post('/api/tt/diag')
+def tt_diag():
+    from .tt import TT, parse_session
+    cfg = config.load()
+    if not cfg.get('tt_cookie'): return jsonify(ok=False, lines=['❌ 还没有保存 TikTok Cookie'])
+    lines = []
+    c = TT(parse_session(cfg['tt_cookie'], cfg.get('tt_ms_token'), cfg.get('tt_device_id'), cfg.get('tt_user_agent')), 0.5, 1, lines.append)
+    try: res = c.diag()
+    except Exception as e: res = [f'❌ {e}']
+    return jsonify(ok=True, lines=res + lines)
 
 @app.get('/api/tt/signer')
 def tt_signer():

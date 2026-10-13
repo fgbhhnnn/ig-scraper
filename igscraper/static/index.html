@@ -18,6 +18,7 @@
 <label>device_id（localStorage → __tea_cache_tokens_1988 的 web_id，可直接粘贴整段 JSON）<input id="tt_device_id"></label></div>
 <label>User-Agent（与导出 Cookie 的浏览器一致；留空用默认 Chrome）<input id="tt_user_agent" placeholder="浏览器地址栏输入 about:version 或控制台 navigator.userAgent"></label>
 <div class="row"><button onclick="saveCookie('tiktok')">保存并校验</button><button class="ghost" onclick="checkCookie('tiktok')">检测当前</button></div><p id="ttmsg"></p>
+<div class="row"><button class="ghost" onclick="ttDiag()">🩺 TikTok 诊断</button><span class="hint">保存 Cookie 后点击，逐项检查登录、电脑时间、代理和搜索</span></div><pre id="ttdiag" hidden style="height:auto;max-height:220px"></pre>
 <h3>TikTok 签名模块</h3><div class="row"><b id="ttsign"></b></div>
 <p class="hint">TikTok 接口需要 X-Gnarly / X-Dynosaur 签名。签名算法来自 <a href="https://github.com/cv-cat/TiktokApis" target="_blank">cv-cat/TiktokApis</a>（感谢原作者 cv-cat），本软件已内置该项目固定版本（b3b2a44）的 signing/pure.py，并在打包时校验了 SHA-256，一般无需任何操作。如果以后 TikTok 改了签名、原项目有更新，可以用下面的按钮下载或选择新文件，本地文件会优先于内置版本使用。</p>
 <details><summary class="hint">更新签名模块（可选）</summary><div class="row"><button class="ghost" onclick="ttSigner()">更新签名模块（可选）</button><label class="hint">或选择本地 pure.py：<input type="file" id="ttsignfile" accept=".py" style="width:auto" onchange="ttSigner(this.files[0])"></label></div></details></div>
