@@ -126,16 +126,23 @@ MOQ
 <div class="grid2"><div><h3>语言分布 <small class="hint">「可能地区」仅根据评论语言推断，不是真实定位</small></h3><div id="c_langs"></div></div><div></div></div>
 <div class="tw"><table><thead><tr><th>平台</th><th>帖子</th><th>账号</th><th>评论者</th><th>评论内容</th><th>语言</th><th>可能地区(按语言推断)</th><th>点赞</th><th>时间</th><th>回复</th><th>询盘</th></tr></thead><tbody id="c_tb"></tbody></table></div>
 </section>
-<section id="p-ai" hidden><h2>AI 视频分析 · 一键复刻</h2>
-<p class="hint">在「⑤ 结果」里点某条视频的「🤖 AI 分析」，或在下面粘贴 TikTok / Instagram / Facebook 视频链接。程序会读取文案、标签、数据和评论（提问类优先），下载视频截图后交给 AI 拆解成「视频画像」，再根据你的产品生成复刻脚本。需先在「② AI 设置」配好接口和模型。</p>
-<div class="row"><input id="a_url" class="grow" placeholder="粘贴视频链接，例如 https://www.tiktok.com/@xxx/video/123…"><button onclick="aStart()">🤖 开始分析</button><button class="danger ghost" onclick="api('/api/analyze/stop',{})">停止</button></div>
-<div class="stats"><div><i>阶段</i><b id="a_stage">-</b></div></div><div class="bar"><div id="a_bar"></div></div>
-<pre id="a_log" style="height:160px"></pre>
-<div class="grid2" style="grid-template-columns:320px 1fr"><div><h3>历史分析 <button class="ghost" onclick="aList()">刷新</button></h3><div id="a_list"></div></div>
-<div id="a_view" hidden><h3 id="a_title"></h3><p class="hint" id="a_meta"></p>
-<div class="row"><button class="ghost" onclick="aCopy('profile')">复制画像</button><button class="ghost" onclick="aCopy('all')">复制全部 Markdown</button><button onclick="location.href='/api/analyses/'+AID+'/md'">导出 Markdown</button><button class="danger ghost" onclick="aDel()">删除</button></div>
-<h3>📊 视频画像</h3><div id="a_profile" class="md"></div>
-<h3>🎬 一键复刻</h3><label>我的产品 / 需求信息（产品名、材质、卖点、价格/MOQ、目标市场、想发的平台和语言…）<textarea id="a_product" rows="4" placeholder="例：硅胶折叠水杯，食品级硅胶，可定制logo，MOQ 500，主打欧美户外人群，发 TikTok 英文"></textarea></label>
-<div class="row"><button onclick="aRep()">✨ 生成复刻脚本</button><span id="a_rmsg"></span><button class="ghost" onclick="aCopy('replica')">复制复刻脚本</button></div>
-<div id="a_replica" class="md"></div></div></div>
-</section></main><script src="/static/app.js"></script></body></html>
+<section id="p-ai" hidden class="ai-page">
+<div class="ai-top"><div><h2>AI 视频分析 · 一键复刻</h2>
+<p class="hint">在「⑤ 结果」里点某条视频的「🤖 AI 分析」，或在下面粘贴 TikTok / Instagram / Facebook 视频链接。程序会读取文案、标签、数据和评论（提问类优先），下载视频截图后交给 AI 拆解成「视频画像」，再根据你的产品生成复刻脚本。需先在「② AI 设置」配好接口和模型。</p></div>
+<div class="ai-input"><input id="a_url" placeholder="粘贴视频链接，例如 https://www.tiktok.com/@xxx/video/123…"><button onclick="aStart()">🤖 开始分析</button><button class="danger ghost" onclick="api('/api/analyze/stop',{})">停止</button></div>
+<div class="ai-prog"><span class="ai-stage" id="a_stage">空闲</span><div class="bar"><div id="a_bar"></div></div><details><summary>运行日志</summary><pre id="a_log"></pre></details></div></div>
+<div class="ai-layout"><aside class="ai-hist"><div class="ai-hist-h"><b>历史分析</b><button class="ghost sm" onclick="aList()">刷新</button></div><div id="a_list"></div></aside>
+<div class="ai-main"><div id="a_empty" class="ai-empty"><div>🎬</div><p>选择左侧的历史记录，或粘贴链接开始一次新的分析</p></div>
+<div id="a_view" hidden>
+<div class="hero"><div class="hero-thumb" id="a_thumb"></div><div class="hero-body">
+<div class="hero-title"><span id="a_plat" class="badge"></span><h3 id="a_title"></h3></div>
+<div class="chips" id="a_chips"></div><p class="hero-cap" id="a_cap"></p>
+<div class="hero-act"><a id="a_link" class="btn ghost" target="_blank">↗ 打开原视频</a><button class="ghost" onclick="aCopy('all')">复制全部 Markdown</button><button onclick="location.href='/api/analyses/'+AID+'/md'">⬇ 导出 Markdown</button><button class="danger ghost" onclick="aDel()">删除</button></div></div></div>
+<div class="hookline" id="a_hook" hidden><div class="hl-h">🎣 前 3 秒关键帧</div><div class="hl-strip" id="a_hookstrip"></div></div>
+<div class="tabs"><button id="t_profile" class="tab on" onclick="aTab('profile')">📊 视频画像</button><button id="t_replica" class="tab" onclick="aTab('replica')">🎬 一键复刻</button></div>
+<div id="pane_profile" class="pane"><nav class="toc" id="toc_profile"></nav><div class="cards" id="a_profile"></div></div>
+<div id="pane_replica" class="pane" hidden><nav class="toc" id="toc_replica"></nav><div class="cards"><div class="card rep-form"><div class="card-h"><span class="ic">🧾</span><h4>我的产品 / 需求信息</h4></div><div class="card-b">
+<textarea id="a_product" rows="4" placeholder="产品名、材质、卖点、价格/MOQ、目标市场、想发的平台和语言…&#10;例：硅胶折叠水杯，食品级硅胶，可定制logo，MOQ 500，主打欧美户外人群，发 TikTok 英文"></textarea>
+<div class="row"><button onclick="aRep()">✨ 生成复刻脚本</button><span id="a_rmsg"></span><span class="hint">只模仿结构和思路，文案和画面全部原创</span></div></div></div><div id="a_replica"></div></div></div>
+</div></div></div>
+</section></main><script src="/static/vendor/marked.min.js"></script><script src="/static/vendor/purify.min.js"></script><script src="/static/app.js"></script></body></html>

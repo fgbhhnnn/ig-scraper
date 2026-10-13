@@ -261,6 +261,14 @@ def fetch_comments(pl, c, M, pages, max_c):
     out.sort(key=lambda x: (not x['q'], -x['likes']))
     return out
 
+def make_thumbs(vpath, tmp, hook_ts):
+    """封面 + 前 3 秒小缩略图（base64 存进结果，视频本身仍会删除）"""
+    d = os.path.join(tmp, 'th'); os.makedirs(d, exist_ok=True)
+    u = lambda p: 'data:image/jpeg;base64,' + base64.b64encode(open(p, 'rb').read()).decode()
+    cov = frames.extract_frames(vpath, d, [min(0.5, max(hook_ts or [0]))], width=270, quality=6)
+    hs = frames.extract_frames(vpath, d, hook_ts[:16], width=150, quality=7)
+    return {'thumb': u(cov[0][1]) if cov else '', 'hook_thumbs': [{'t': t, 'img': u(p)} for t, p in hs]}
+
 # ---------------- 任务 ----------------
 BATCH = {}   # 本次运行中 (接口, 模型) 成功过的每批图片数，后续直接用
 class AnalyzeTask(Task):
@@ -297,6 +305,8 @@ class AnalyzeTask(Task):
                 sc = frames.scene_times(vpath)
                 ts = frames.frame_schedule(M['duration'], fps=fps, scene_times=sc)
                 fr = frames.extract_frames(vpath, tmp, ts)
+                try: M.update(make_thumbs(vpath, tmp, [t for t, _ in fr if t < 3.0]))
+                except Exception as e: self.log(f'缩略图生成失败（不影响分析）：{e}')
                 self.log(f"时长 {M['duration']:.1f}s，前 3 秒每秒 4 张、之后每秒 {fps:g} 张，另加转场帧 {len(ts) - len(frames.frame_schedule(M['duration'], fps=fps))} 张，共截图 {len(fr)} 张")
                 stt = (cfg.get('ai_stt_model') or '').strip()
                 if stt and has_a:

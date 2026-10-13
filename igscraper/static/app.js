@@ -84,8 +84,6 @@ document.addEventListener('DOMContentLoaded',()=>{$('platform').addEventListener
 async function ttDiag(){const p=$('ttdiag');p.hidden=false;p.textContent='诊断中…（约 5~10 秒）';const d=await api('/api/tt/diag',{});p.textContent=(d.lines||[]).join('\n')}
 
 async function visionTest(){msg('vmsg','测试中…（发送一张红色圆形图片）',1);const d=await api('/api/ai/vision_test',{ai_base:$('ai_base').value,ai_key:$('ai_key').value,ai_model:$('ai_model_manual').value.trim()||$('ai_model').value});msg('vmsg',d.msg,d.ok)}
-function md(t){let h=esc(t||'');h=h.replace(/^(\|.*\|)\n\|[-:| ]+\|\n((?:\|.*\|\n?)*)/gm,(m,hd,body)=>{const row=(l,tg)=>'<tr>'+l.trim().slice(1,-1).split('|').map(c=>`<${tg}>${c.trim()}</${tg}>`).join('')+'</tr>';return'<table class="mdt">'+row(hd,'th')+body.trim().split('\n').map(l=>row(l,'td')).join('')+'</table>'});
- return h.replace(/^### (.*)$/gm,'<h4>$1</h4>').replace(/^## (.*)$/gm,'<h3>$1</h3>').replace(/^# (.*)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^[-*] (.*)$/gm,'• $1').replace(/\n/g,'<br>').replace(/(<\/(h2|h3|h4|table)>)<br>/g,'$1')}
 let aLogN=0,aTimer=null,AID=null,AREC=null;
 async function aGo(b){const d=await api('/api/analyze/start',b);if(!d.ok)return alert(d.error);aLogN=0;$('a_log').textContent='';show('ai')}
 function aStart(){const u=$('a_url').value.trim();if(!u)return alert('请粘贴视频链接');aGo({url:u})}
@@ -93,12 +91,35 @@ async function aPoll(){clearTimeout(aTimer);const s=await api('/api/analyze/stat
  $('a_stage').textContent=s.stage;$('a_bar').style.width=(s.target?s.scanned/s.target*100:0)+'%';
  if(s.logs.length){$('a_log').textContent+=s.logs.join('\n')+'\n';$('a_log').scrollTop=1e9}aLogN=s.log_total;
  if(s.running)aTimer=setTimeout(aPoll,1500);else if(aPoll.was){aList();if(s.result_id)aOpen(s.result_id)}aPoll.was=s.running}
-async function aList(){const L=await api('/api/analyses');$('a_list').innerHTML=L.length?L.map(a=>`<div class="ai-item ${a.id===AID?'on':''}" onclick="aOpen(${a.id})"><b>#${a.id} ${PN[a.platform]||a.platform} @${esc(a.account)}</b>${a.has_replica?' 🎬':''}<br><span class="hint">${esc(a.created_at)} · ${a.vision?'识图':'纯文字'} · ${a.frames} 张图</span><br><span class="hint">${esc((a.caption||'').slice(0,50))}</span></div>`).join(''):'<p class="hint">还没有分析记录</p>'}
-async function aOpen(id){AID=id;const a=AREC=await api('/api/analyses/'+id);const M=JSON.parse(a.meta||'{}');$('a_view').hidden=false;
- $('a_title').innerHTML=`#${a.id} ${PN[a.platform]||''} @${esc(a.account)} · <a href="${esc(a.url)}" target="_blank">打开原视频</a>`;
- $('a_meta').textContent=`播放 ${M.plays??'-'} · 点赞 ${M.likes??'-'} · 评论 ${M.comments??'-'} · 时长 ${(+M.duration||0).toFixed(1)}s · 截图 ${a.frames} 张 · 评论 ${M.comment_n??0} 条(提问 ${M.question_n??0}) · ${a.vision?'识图分析':'纯文字分析'} ${a.note||''} · ${a.created_at}`;
- $('a_profile').innerHTML=md(a.profile);$('a_replica').innerHTML=md(a.replica||'');$('a_product').value=a.product||localStorage.a_product||'';aList()}
-async function aRep(){if(!AID)return;localStorage.a_product=$('a_product').value;msg('a_rmsg','生成中…（约 30 秒 ~ 2 分钟）',1);const d=await api('/api/analyses/'+AID+'/replicate',{product:$('a_product').value});if(!d.ok)return msg('a_rmsg',d.error);msg('a_rmsg','✅ 已生成并保存',1);aOpen(AID)}
-async function aCopy(w){if(!AREC)return;let t=w==='profile'?AREC.profile:w==='replica'?(AREC.replica||''):await(await fetch('/api/analyses/'+AID+'/md?raw=1')).text();
- try{await navigator.clipboard.writeText(t)}catch(e){const x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();document.execCommand('copy');x.remove()}alert('已复制')}
-async function aDel(){if(AID&&confirm('删除这条分析记录？')){await api('/api/analyses/'+AID+'/delete',{});AID=null;$('a_view').hidden=true;aList()}}
+const ICONS=[['钩子','🎣'],['结构','🧱'],['视觉','🎨'],['卖点','💎'],['人群','🎯'],['情绪','❤️'],['评论','💬'],['爆款','🔥'],['公式','🧪'],['分镜','🎬'],['文案','✍️'],['标签','🏷️'],['封面','🖼️'],['发布','📅']];
+const fmtN=n=>n==null||n===''?'-':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?(n/1e3).toFixed(1)+'K':(+n).toLocaleString();
+function mdHtml(t){return DOMPurify.sanitize(marked.parse(t||'',{gfm:true,breaks:true}))}
+function splitSec(t){const out=[];let cur={title:'',body:[]};(t||'').split('\n').forEach(l=>{const m=l.match(/^##\s+(.*)/);if(m){if(cur.title||cur.body.join('').trim())out.push(cur);cur={title:m[1].trim(),body:[]}}else cur.body.push(l)});if(cur.title||cur.body.join('').trim())out.push(cur);return out.map(x=>({title:x.title,body:x.body.join('\n').trim()}))}
+function decorate(root){const W=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('code,pre,a,.ts')?2:1});const ns=[];while(W.nextNode())ns.push(W.currentNode);
+ const re=/(\d{1,3}(?:\.\d{1,2})?\s*(?:s|秒)?\s*[–\-~～至]\s*\d{1,3}(?:\.\d{1,2})?\s*(?:s|秒)|\b\d{1,3}(?:\.\d{1,2})?s\b)/g;
+ ns.forEach(n=>{if(!re.test(n.nodeValue))return;re.lastIndex=0;const f=document.createElement('span');f.innerHTML=esc(n.nodeValue).replace(re,'<span class="ts">$1</span>');n.replaceWith(...f.childNodes)});
+ root.querySelectorAll('code').forEach(c=>{if(!c.closest('pre'))c.classList.add('quote')});root.querySelectorAll('table').forEach(t=>{const w=document.createElement('div');w.className='tblw';t.replaceWith(w);w.appendChild(t)})}
+function storyboard(body){const m=body.match(/^\|.*\|\s*\n\|[\s:|-]+\|\s*\n(?:\|.*\|\s*\n?)+/m);if(!m)return null;const rows=m[0].trim().split('\n').filter((l,i)=>i!==1).map(l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()));
+ const hd=rows.shift();const cards=rows.map(r=>`<div class="shot"><div class="shot-h"><span class="shot-no">${esc(r[0])}</span><span class="ts big">${esc(r[1]||'')}</span></div>${hd.slice(2).map((h,i)=>r[i+2]?`<div class="shot-f"><label>${esc(h)}</label><div>${mdHtml(r[i+2])}</div></div>`:'').join('')}</div>`).join('');
+ return{before:body.slice(0,m.index),cards,after:body.slice(m.index+m[0].length)}}
+function renderSecs(kind,text){const box=$('a_'+kind),toc=$('toc_'+kind);const secs=splitSec(text);if(kind==='profile'||!text){}
+ box.innerHTML=secs.map((x,i)=>{const ic=(ICONS.find(k=>x.title.includes(k[0]))||[0,'📝'])[1];const title=x.title||'概述';let bodyH;const sb=x.title.includes('分镜')&&storyboard(x.body);
+  bodyH=sb?mdHtml(sb.before)+`<div class="board">${sb.cards}</div>`+mdHtml(sb.after):mdHtml(x.body);
+  return`<details class="card" open id="${kind}_s${i}"><summary class="card-h"><span class="ic">${ic}</span><h4>${esc(title.replace(/（.*?）$/,''))}</h4><span class="sub">${esc((title.match(/（(.*?)）$/)||['',''])[1])}</span><button class="ghost sm" onclick="event.preventDefault();secCopy('${kind}',${i})">复制</button><span class="chev">▾</span></summary><div class="card-b md2">${bodyH}</div></details>`}).join('');
+ decorate(box);toc.innerHTML=secs.length>1?'<b>目录</b>'+secs.map((x,i)=>`<a onclick="document.getElementById('${kind}_s${i}').open=true;document.getElementById('${kind}_s${i}').scrollIntoView({behavior:'smooth',block:'start'})">${(ICONS.find(k=>x.title.includes(k[0]))||[0,'📝'])[1]} ${esc((x.title||'概述').replace(/（.*?）$/,'').replace(/^[一二三四五六七八九十]+、/,''))}</a>`).join(''):'';SECS[kind]=secs}
+const SECS={};
+function secCopy(kind,i){const x=SECS[kind][i];cp((x.title?'## '+x.title+'\n\n':'')+x.body)}
+async function cp(t){try{await navigator.clipboard.writeText(t)}catch(e){const x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();document.execCommand('copy');x.remove()}toast('已复制')}
+function toast(t){let e=$('toast');if(!e){e=document.createElement('div');e.id='toast';document.body.appendChild(e)}e.textContent=t;e.className='show';clearTimeout(toast.t);toast.t=setTimeout(()=>e.className='',1500)}
+function aTab(k){['profile','replica'].forEach(x=>{$('t_'+x).classList.toggle('on',x===k);$('pane_'+x).hidden=x!==k})}
+async function aList(){const L=await api('/api/analyses');$('a_list').innerHTML=L.length?L.map(a=>`<div class="hcard ${a.id===AID?'on':''}" onclick="aOpen(${a.id})"><div class="hthumb">${a.thumb?`<img src="${a.thumb}">`:`<span>${a.platform==='tiktok'?'♪':a.platform==='facebook'?'f':'◎'}</span>`}</div><div class="hbody"><div class="htop"><span class="badge ${a.platform}">${PN[a.platform]||a.platform}</span><span class="hid">#${a.id}</span></div><b>@${esc(a.account)}</b><div class="hcap">${esc((a.caption||'').slice(0,60))}</div><div class="hmeta">${esc(a.created_at.slice(5,16))} · ${a.vision?'识图':'纯文字'} · ${a.frames} 帧${a.has_replica?' · <i>已复刻</i>':''}</div></div></div>`).join(''):'<p class="hint" style="padding:12px">还没有分析记录</p>'}
+async function aOpen(id){AID=id;const a=AREC=await api('/api/analyses/'+id);const M=JSON.parse(a.meta||'{}');$('a_view').hidden=false;$('a_empty').hidden=true;
+ $('a_plat').textContent=PN[a.platform]||a.platform;$('a_plat').className='badge '+a.platform;$('a_title').textContent='@'+a.account;$('a_link').href=a.url;
+ $('a_thumb').innerHTML=M.thumb?`<img src="${M.thumb}">`:`<span>${a.platform==='tiktok'?'♪':'▶'}</span>`;
+ const ch=[['▶','播放',fmtN(M.plays)],['♥','点赞',fmtN(M.likes)],['💬','评论',fmtN(M.comments)],['↗','分享',fmtN(M.shares)],['⏱','时长',(+M.duration||0).toFixed(1)+'s'],['🖼','截图',a.frames+' 帧'],['❓','提问评论',`${M.question_n??0}/${M.comment_n??0}`],['📅','发布',M.date||'-']];
+ $('a_chips').innerHTML=ch.map(c=>`<span class="chip"><i>${c[0]}</i>${c[1]} <b>${esc(c[2])}</b></span>`).join('')+`<span class="chip ${a.vision?'ok':'warn'}">${a.vision?'✓ 识图分析':'⚠ 纯文字分析'}</span>`;
+ $('a_cap').textContent=a.caption||'';const th=M.hook_thumbs||[];$('a_hook').hidden=!th.length;$('a_hookstrip').innerHTML=th.map(x=>`<figure><img src="${x.img}"><figcaption>${x.t.toFixed(2)}s</figcaption></figure>`).join('');
+ renderSecs('profile',a.profile);renderSecs('replica',a.replica||'');$('a_product').value=a.product||localStorage.a_product||'';aList()}
+async function aRep(){if(!AID)return;localStorage.a_product=$('a_product').value;msg('a_rmsg','生成中…（约 30 秒 ~ 2 分钟）',1);const d=await api('/api/analyses/'+AID+'/replicate',{product:$('a_product').value});if(!d.ok)return msg('a_rmsg',d.error);msg('a_rmsg','✅ 已生成并保存',1);await aOpen(AID);aTab('replica')}
+async function aCopy(w){if(!AREC)return;cp(w==='profile'?AREC.profile:w==='replica'?(AREC.replica||''):await(await fetch('/api/analyses/'+AID+'/md?raw=1')).text())}
+async function aDel(){if(AID&&confirm('删除这条分析记录？')){await api('/api/analyses/'+AID+'/delete',{});AID=null;$('a_view').hidden=true;$('a_empty').hidden=false;aList()}}

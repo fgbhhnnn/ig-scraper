@@ -96,6 +96,14 @@ def get_analysis(aid):
         r = c.execute('SELECT * FROM analyses WHERE id=?', (aid,)).fetchone(); return dict(r) if r else None
 def list_analyses():
     init_analyses()
-    with conn() as c: return [dict(r) for r in c.execute('SELECT id,platform,url,account,caption,vision,frames,created_at,replica IS NOT NULL AS has_replica FROM analyses ORDER BY id DESC')]
+    import json
+    out = []
+    with conn() as c:
+        for r in c.execute('SELECT id,platform,url,account,caption,vision,frames,created_at,replica IS NOT NULL AS has_replica,meta FROM analyses ORDER BY id DESC'):
+            d = dict(r)
+            try: d['thumb'] = json.loads(d.pop('meta') or '{}').get('thumb', '')
+            except Exception: d['thumb'] = ''
+            out.append(d)
+    return out
 def delete_analysis(aid):
     with _lock, conn() as c: c.execute('DELETE FROM analyses WHERE id=?', (aid,))
