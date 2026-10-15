@@ -43,7 +43,7 @@ def _check(plat, ck, extra=None):
         from .fb import FB
         return FB(ck).login()
     ig = IG(ck)
-    if not ig.check(): raise Blocked('校验失败：接口无返回，Cookie 可能已失效')
+    return ig.check()
     return ig.user_id
 @app.post('/api/cookie')
 def set_cookie():
@@ -183,6 +183,15 @@ def tt_diag():
     try: res = c.diag()
     except Exception as e: res = [f'❌ {e}']
     return jsonify(ok=True, lines=res + lines)
+
+@app.post('/api/ig/diag')
+def ig_diag():
+    cfg = config.load()
+    if not cfg.get('cookie'): return jsonify(ok=False, lines=['❌ 还没有保存 Instagram Cookie'])
+    lines = []
+    try: res = IG(cfg['cookie'], 0.3, 0.6, lines.append).diag()
+    except Exception as e: res = [f'❌ {e}']
+    return jsonify(ok=True, lines=res)
 
 @app.get('/api/tt/signer')
 def tt_signer():

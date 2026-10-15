@@ -9,6 +9,7 @@
 <div class="grid2"><div><h3>Instagram <small class="hint">需含 sessionid、csrftoken</small></h3>
 <textarea id="cookie" rows="9" placeholder='粘贴 instagram.com 的 Cookie…'></textarea>
 <div class="row"><button onclick="saveCookie('instagram')">保存并校验</button><button class="ghost" onclick="checkCookie('instagram')">检测当前</button></div><p id="ckmsg"></p></div>
+<div class="row"><button class="ghost" onclick="igDiag()">🩺 Instagram 诊断</button><span class="hint">检查代理、出口 IP、登录和搜索接口</span></div><pre id="igdiag" hidden style="height:auto;max-height:220px"></pre>
 <div><h3>Facebook <small class="hint">需含 c_user、xs</small></h3>
 <textarea id="fbcookie" rows="9" placeholder='粘贴 facebook.com 的 Cookie…'></textarea>
 <div class="row"><button onclick="saveCookie('facebook')">保存并校验</button><button class="ghost" onclick="checkCookie('facebook')">检测当前</button></div><p id="fbmsg"></p></div></div>
