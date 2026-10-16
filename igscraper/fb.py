@@ -1,6 +1,6 @@
 """Facebook web client (read-only: page GETs + read GraphQL queries only)."""
 import json, re, time, random, datetime, urllib.parse, requests
-from .ig import Blocked
+from .ig import Blocked, jazoest, ASBD_ID
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
 CH = {'sec-ch-ua': '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"', 'sec-ch-ua-mobile': '?0',
@@ -153,7 +153,7 @@ class FB:
         self.uid = m.group(1)
         g = lambda p: (re.search(p, t) or [None, ''])[1]
         self.tok = dict(fb_dtsg=g(r'"DTSGInitialData",\[\],\{"token":"([^"]+)'), lsd=g(r'"LSD",\[\],\{"token":"([^"]+)'),
-                        jazoest=g(r'jazoest=(\d+)'), __spin_r=g(r'"__spin_r":(\d+)'), __spin_t=g(r'"__spin_t":(\d+)'),
+                        jazoest=g(r'jazoest=(\d+)') or jazoest(g(r'"DTSGInitialData",\[\],\{"token":"([^"]+)')), __spin_r=g(r'"__spin_r":(\d+)'), __spin_t=g(r'"__spin_t":(\d+)'),
                         __rev=g(r'"server_revision":(\d+)'))
         return self.uid
 
@@ -172,11 +172,13 @@ class FB:
             except Exception: continue
             for m in re.finditer(r'__d\("(\w+Query)_facebookRelayOperation".{0,200}?exports="(\d+)"', c):
                 if m.group(1) in WANT_DOCS: found[m.group(1)] = m.group(2)
+            a = re.search(r'__d\("BDHeaderConfig",\[\],\(function\([^)]*\)\{"use strict";var \w="(\d+)"', c)
+            if a: self.asbd = a.group(1)
             i = c.find('__d("CommentsListComponentsPaginationQuery.graphql"')
             if i >= 0:
                 j = c.find('__d(', i + 10); pv = sorted(set(re.findall(r'__relay_internal__pv__(\w+?)relayprovider', c[i:j if j > 0 else None])))
                 if pv: self.pv = pv; pv_ok = True; self.log(f'FB 评论翻页 provider 变量: {pv}')
-        self.docs.update(found)
+        self.docs.update({k: v for k, v in found.items() if not k.startswith('_')})
         self.log(f'FB doc_id：从 {min(len(js), limit)} 个 JS 包中找到 {len(found)} 个' + (f' {found}' if found else '，使用内置默认值'))
 
     def gql(self, name, v, ref):
@@ -185,7 +187,7 @@ class FB:
         d = dict(av=self.uid, __user=self.uid, __a='1', __comet_req='15', __spin_b='trunk', fb_api_caller_class='RelayModern',
                  fb_api_req_friendly_name=name, variables=json.dumps(v), server_timestamps='true', doc_id=self.docs[name], **self.tok)
         h = dict(CH, **{'Content-Type': 'application/x-www-form-urlencoded', 'X-FB-Friendly-Name': name, 'X-FB-LSD': self.tok['lsd'],
-                        'X-ASBD-ID': '129477', 'Origin': 'https://www.facebook.com', 'Referer': ref, 'Sec-Fetch-Site': 'same-origin',
+                        'X-ASBD-ID': getattr(self, 'asbd', ASBD_ID), 'Origin': 'https://www.facebook.com', 'Referer': ref, 'Sec-Fetch-Site': 'same-origin',
                         'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Accept': '*/*'})
         try: r = self.s.post('https://www.facebook.com/api/graphql/', data=d, headers=h, timeout=40)
         except Exception as e: self.log(f'FB GraphQL 网络错误: {e}'); return []

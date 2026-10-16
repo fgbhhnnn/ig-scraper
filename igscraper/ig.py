@@ -7,8 +7,43 @@ COMMENT_QH = 'bc3296d1ce80a24b1b6e40b1e72903f5'
 # 2026-10 起网页版关键词搜索改成 GraphQL（旧的 /api/v1/fbsearch/web/top_serp/ 和 topsearch 返回 404）
 SERP_DOC = ('PolarisKeywordSearchExplorePageRelayQuery', '37324993597144881')
 SERP_DOC_PAGE = ('PolarisKeywordSearchExplorePageRelayPaginationQuery', '28656899673911396')
+# 免登录可用：按 shortcode 取帖子/Reel 详情（含视频地址、点赞、评论数、文案）
+POST_DOC = ('PolarisPostRootQuery', '28188170744199537')
+POST_PV = ['AdDebugToolEnabled', 'MultiCaptionCarouselEnabled', 'ReelsRecoDebugOverlayEnabled', 'ShortDramaEnabled',
+           'SuggestedUserFeedUnitCardsEnabled', 'ThreadsStyleCommentsEnabled']
+ASBD_ID = '359341'   # 网页 JS 里 BDHeaderConfig.ASBD_ID 的常量（2026-10）；运行时会尝试从 JS 更新
+# 运行时从 JS 包里发现的 doc_id / 常量（进程内缓存）
+DISCOVERED = {}
+
+def jazoest(tok):
+    """网页 DTSGUtils.getNumericValue：'2' + 各字符编码之和（登录用 fb_dtsg，未登录用 lsd）"""
+    return '2' + str(sum(ord(c) for c in tok or ''))
+
+def js_urls(html):
+    return list(dict.fromkeys(u.replace('\\/', '/') for u in re.findall(
+        r'https:(?:\\/\\/|//)static\.(?:cdninstagram\.com|xx\.fbcdn\.net)(?:\\/|/)rsrc\.php[^"\'\s]+?\.js[^"\'\s]*', html)))
+
+def scan_js(text, want, suffix='_instagramRelayOperation'):
+    """从一个 JS 包里找 doc_id（__d("XQuery_instagramRelayOperation",[],…exports="123")）和 ASBD_ID"""
+    out = {}
+    for m in re.finditer(r'__d\("(\w+?)' + suffix + r'",\[\],\(function\([^)]*\)\{\w\.exports="(\d+)"', text):
+        if m.group(1) in want: out[m.group(1)] = m.group(2)
+    m = re.search(r'__d\("BDHeaderConfig",\[\],\(function\([^)]*\)\{"use strict";var \w="(\d+)"', text)
+    if m: out['_asbd'] = m.group(1)
+    return out
+
+def page_app_id(html):
+    m = re.search(r'"X-IG-App-ID":"(\d+)"', html) or re.search(r'"APP_ID":"(\d+)"', html)
+    return m.group(1) if m else ''
 
 class Blocked(Exception): pass
+
+def doc_stale(o, status):
+    """像是 doc_id 过期（持久化查询找不到 / 403 Page Not Found）"""
+    if status in (403, 404) and not o: return True
+    if not isinstance(o, dict) or o.get('data'): return False
+    msg = json.dumps(o.get('errors') or o)[:500].lower()
+    return 'persisted' in msg or 'doc_id' in msg or 'document' in msg or 'not found' in msg
 
 def parse_cookie(raw):
     """Accept 'a=b; c=d' header string or Cookie-Editor JSON array/object. Returns header string."""
@@ -122,27 +157,80 @@ class IG:
         r = self.cs().get('https://www.instagram.com/explore/search/keyword/', params={'q': kw}, timeout=30)
         t = r.text; g = lambda p: (re.search(p, t) or [None, ''])[1]
         self.tok = {'fb_dtsg': g(r'"DTSGInitialData",\[\],\{"token":"([^"]+)'), 'lsd': g(r'"LSD",\[\],\{"token":"([^"]+)'), 'av': g(r'"actorID":"(\d+)"')}
+        self.page_html = t
+        aid = page_app_id(t)
+        if aid and aid != self.cs().headers.get('X-IG-App-ID'): self.cs().headers['X-IG-App-ID'] = aid; self.log(f'IG app-id 更新为 {aid}')
         if not self.tok['fb_dtsg']:
             if 'not-logged-in' in t[:3000]: raise Blocked('Cookie 已失效（Instagram 显示未登录），请重新导出')
             self.tok = {}; raise RuntimeError(f'搜索页没拿到 fb_dtsg（HTTP {r.status_code}）')
         return self.tok
 
-    def gql(self, doc, variables, ref):
+    def discover(self, html, want, limit=600):
+        """从页面引用的 JS 包（静态 CDN）里找最新 doc_id；只在内置值失效时调用，结果进程内缓存。
+        Relay 查询模块一般在列表末尾，所以倒序、并发扫描。"""
+        want = set(want) - set(DISCOVERED)
+        if not want: return {}
+        from concurrent.futures import ThreadPoolExecutor
+        urls = js_urls(html)[::-1][:limit]; found = {}
+        def one(u):
+            if self.stop() or want <= set(found): return
+            try: found.update(scan_js(self.cs().get(u, timeout=20).text, want))
+            except Exception: pass
+        with ThreadPoolExecutor(6) as ex: list(ex.map(one, urls))
+        DISCOVERED.update(found)
+        self.log(f'IG doc_id 自动发现（{len(urls)} 个 JS 包）：' + (str(found) if found else '未找到，继续用内置值'))
+        return found
+
+    @staticmethod
+    def doc(d):
+        return (d[0], DISCOVERED.get(d[0], d[1]))
+
+    def gql(self, doc, variables, ref, _retry=True):
         tk = self._tokens(variables.get('query', ''))
         self._sleep(random.uniform(self.dmin, self.dmax))
-        data = {'av': tk['av'], '__user': '0', '__a': '1', '__comet_req': '7', 'fb_dtsg': tk['fb_dtsg'], 'lsd': tk['lsd'],
-                'fb_api_caller_class': 'RelayModern', 'fb_api_req_friendly_name': doc[0], 'variables': json.dumps(variables),
+        doc0 = doc; doc = self.doc(doc)
+        data = {'av': tk['av'], '__user': '0', '__a': '1', '__comet_req': '7', 'fb_dtsg': tk['fb_dtsg'], 'jazoest': jazoest(tk['fb_dtsg']),
+                'lsd': tk['lsd'], 'fb_api_caller_class': 'RelayModern', 'fb_api_req_friendly_name': doc[0], 'variables': json.dumps(variables),
                 'server_timestamps': 'true', 'doc_id': doc[1]}
-        h = {'X-FB-LSD': tk['lsd'], 'X-FB-Friendly-Name': doc[0], 'Referer': ref, 'Origin': 'https://www.instagram.com',
-             'Content-Type': 'application/x-www-form-urlencoded'}
+        h = {'X-FB-LSD': tk['lsd'], 'X-FB-Friendly-Name': doc[0], 'X-ASBD-ID': DISCOVERED.get('_asbd', ASBD_ID), 'Referer': ref,
+             'Origin': 'https://www.instagram.com', 'Content-Type': 'application/x-www-form-urlencoded'}
         for t in range(3):
             try: r = self.cs().post('https://www.instagram.com/api/graphql', data=data, headers=h, timeout=40)
             except Exception as e: self.last_err = f'网络/代理错误：{e.__class__.__name__}'; self.log(self.last_err); self._sleep(5); continue
             if r.status_code == 429: w = 60 * (t + 1); self.log(f'429 限流，等待 {w}s'); self._sleep(w); continue
             head = r.text[:600]
             if 'checkpoint_required' in head or 'challenge_required' in head: raise Blocked('Instagram 要求安全验证(checkpoint)，已停止。请在浏览器里处理后重新导出 Cookie')
-            try: return r.json()
-            except Exception: self.last_err = f'GraphQL 返回的不是 JSON（HTTP {r.status_code}）'; self.log(self.last_err); return None
+            try: o = r.json()
+            except Exception: self.last_err = f'GraphQL 返回的不是 JSON（HTTP {r.status_code}）'; self.log(self.last_err); o = None
+            if _retry and doc_stale(o, r.status_code) and self.discover(getattr(self, 'page_html', ''), [SERP_DOC[0], SERP_DOC_PAGE[0], doc0[0]]).get(doc0[0], doc[1]) != doc[1]:
+                return self.gql(doc0, variables, ref, _retry=False)
+            return o
+        return None
+
+    def public_media(self, code):
+        """免登录取帖子详情（GraphQL PolarisPostRootQuery，只需页面里的 lsd）。返回 media dict 或 None"""
+        from curl_cffi import requests as cr
+        s = cr.Session(impersonate='chrome')
+        if self.proxies: s.proxies = self.proxies
+        ref = f'https://www.instagram.com/p/{code}/'
+        t = s.get(ref, timeout=30).text
+        lsd = (re.search(r'"LSD",\[\],\{"token":"([^"]+)', t) or [None, ''])[1]
+        if not lsd: self.last_err = '免登录：帖子页没拿到 lsd'; return None
+        aid = page_app_id(t) or APP_ID
+        for attempt in range(2):
+            doc = self.doc(POST_DOC)
+            v = dict({f'__relay_internal__pv__Polaris{k}relayprovider': False for k in POST_PV}, shortcode=code)
+            d = {'av': '0', '__user': '0', '__a': '1', '__comet_req': '7', 'lsd': lsd, 'jazoest': jazoest(lsd), 'fb_api_caller_class': 'RelayModern',
+                 'fb_api_req_friendly_name': doc[0], 'variables': json.dumps(v), 'server_timestamps': 'true', 'doc_id': doc[1]}
+            h = {'X-FB-LSD': lsd, 'X-IG-App-ID': aid, 'X-ASBD-ID': DISCOVERED.get('_asbd', ASBD_ID), 'X-FB-Friendly-Name': doc[0], 'Referer': ref, 'Origin': 'https://www.instagram.com'}
+            r = s.post('https://www.instagram.com/graphql/query', data=d, headers=h, timeout=30)
+            try: o = r.json()
+            except Exception: o = None
+            its = ((((o or {}).get('data') or {}).get('xdt_api__v1__media__shortcode__web_info') or {}).get('items')) or []
+            if its: return its[0]
+            self.last_err = f'免登录详情失败（HTTP {r.status_code}）：{(r.text or "")[:120]}'
+            if attempt or not doc_stale(o, r.status_code): return None
+            if self.discover(t, [POST_DOC[0]]).get(POST_DOC[0], doc[1]) == doc[1]: return None
         return None
 
     @staticmethod

@@ -287,8 +287,8 @@ def _tags(cap): return re.findall(r'#([^\s#]+)', cap or '')
 
 def make_client(pl, cfg, log, stopf):
     if pl == 'instagram':
-        if not cfg.get('cookie'): raise Blocked('缺少 Instagram Cookie')
-        return IG(cfg['cookie'], float(cfg['delay_min']), float(cfg['delay_max']), log, stopf)
+        if not cfg.get('cookie'): log('未设置 Instagram Cookie：用免登录方式读取视频信息（评论需要 Cookie，会跳过）')
+        return IG(cfg.get('cookie') or '', float(cfg['delay_min']), float(cfg['delay_max']), log, stopf)
     if pl == 'facebook':
         if not cfg.get('fb_cookie'): raise Blocked('缺少 Facebook Cookie')
         from .fb import FB
@@ -328,9 +328,15 @@ def fetch_meta(pl, c, url, row=None):
     if pl == 'instagram':
         code = (re.search(r'/(?:p|reel|reels|tv)/([\w-]+)', url) or [None, None])[1]
         if not code: raise RuntimeError(f'无法识别 IG 链接：{url}')
-        d = c.get(f'/api/v1/media/{IG.pk_of(code)}/info/', pace=False)
+        try: d = c.get(f'/api/v1/media/{IG.pk_of(code)}/info/', pace=False) if c.ck else None
+        except Exception as e: d = None; c.log(f'IG 详情接口失败（{e}），改用免登录方式')
         its = (d or {}).get('items') or []
-        if not its: raise RuntimeError('Instagram 没有返回这条内容的信息')
+        if not its:
+            pm = None
+            try: pm = c.public_media(code)
+            except Exception as e: c.last_err = f'免登录详情出错：{e}'
+            if pm: its = [pm]; c.log('IG 详情：已用免登录 GraphQL 获取')
+        if not its: raise RuntimeError('Instagram 没有返回这条内容的信息' + (f'（{c.last_err}）' if c.last_err else ''))
         it = its[0]; cap = ((it.get('caption') or {}).get('text') or '')
         vv = it.get('video_versions') or []
         if not vv and it.get('carousel_media'):
@@ -366,6 +372,7 @@ def fetch_meta(pl, c, url, row=None):
     return M, vurl, dl
 
 def fetch_comments(pl, c, M, pages, max_c):
+    if pl == 'instagram' and not c.ck: raise RuntimeError('未设置 Instagram Cookie，无法抓评论')
     if pl == 'instagram': cs, _ = c.comments_full(M['shortcode'], pages, max_c, False)
     elif pl == 'facebook': cs = c.gql_comments(M['_item'], pages, M['url'])[:max_c]
     else: cs = c.comments_full({'shortcode': M['shortcode'], 'url': M['url'], 'account': M['account']}, pages, max_c, False)
