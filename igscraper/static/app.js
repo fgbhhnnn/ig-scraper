@@ -209,3 +209,22 @@ function taskValid(){let ok=true;const set=(id,t)=>{$(id).textContent=t;if(t)ok=
  set('v_mv',!(+$('max_videos').value>=1)?'至少 1 条':'');set('v_date',$('date_from').value&&$('date_to').value&&$('date_from').value>$('date_to').value?'结束日期早于开始日期':'');
  if($('cf_err').classList.contains('err')&&$('cf_err').textContent.startsWith('❌'))ok=false;return ok}
 document.addEventListener('DOMContentLoaded',()=>{['keywords','hashtags','phrases'].forEach(chipify);document.querySelectorAll('#p-task input,#p-task select,#p-task textarea').forEach(e=>{e.addEventListener('input',()=>{taskSum();if(document.querySelector('#p-task .verr:not(:empty)'))taskValid()});e.addEventListener('change',taskSum)});setTimeout(()=>{['keywords','hashtags','phrases'].forEach(chipRender);platUI()},350)});
+
+let UPD=null;
+async function updCheck(manual){const d=await api('/api/update/check');if($('cur_ver'))$('cur_ver').textContent='v'+d.current;
+ if(!d.ok){if(manual)msg('umsg',d.error);return}
+ if(!d.newer){if(manual)msg('umsg','✅ 已是最新版本',1);return}
+ if(d.skipped&&!manual)return;UPD=d;if(manual)msg('umsg','发现新版本 v'+d.latest,1);
+ $('upd_t').textContent='发现新版本 v'+d.latest+'（当前 v'+d.current+'）';
+ $('upd_n').innerHTML=d.notes?DOMPurify.sanitize(marked.parse(d.notes)):'<p class="hint">（无更新说明）</p>';
+ $('upd_e').textContent=d.can_apply?'':'当前是源码运行，请手动下载：'+d.page;$('upd_go').hidden=!d.can_apply;$('upd_p').hidden=true;$('upd').hidden=false}
+function updClose(){$('upd').hidden=true}
+async function updSkip(){await api('/api/update/skip',{version:UPD.latest});updClose()}
+async function updGo(){$('upd_e').textContent='';const r=await api('/api/update/download',{url:UPD.url});if(!r.ok){$('upd_e').textContent=r.error;return}
+ $('upd_go').disabled=true;$('upd_p').hidden=false;
+ const t=setInterval(async()=>{const s=await api('/api/update/status');const tot=s.total||UPD.size||0;
+  $('upd_bar').value=tot?Math.floor(s.got*100/tot):0;$('upd_pt').textContent=(s.got/1048576).toFixed(1)+' / '+(tot/1048576).toFixed(1)+' MB';
+  if(s.state==='error'){clearInterval(t);$('upd_e').textContent='下载失败：'+s.error;$('upd_go').disabled=false}
+  if(s.state==='ready'){clearInterval(t);$('upd_pt').textContent='下载完成，正在替换并重启…';await api('/api/update/apply',{});
+   document.body.innerHTML='<h2 style="padding:40px">正在更新到 v'+UPD.latest+'，程序会自动重新打开，请稍候几秒后刷新本页。</h2>';setTimeout(()=>location.reload(),9000)}},500)}
+setTimeout(()=>updCheck(false),1500);

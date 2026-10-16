@@ -339,3 +339,24 @@ def cfilter_check():
 @app.post('/api/quit')
 def quit_app():
     TASK.stop(); threading.Timer(0.5, lambda: os._exit(0)).start(); return jsonify(ok=True)
+
+from . import updater, __version__
+@app.get('/api/update/check')
+def upd_check():
+    try:
+        d = updater.check(); d['skipped'] = d['newer'] and config.load().get('skip_version') == d['latest']
+        d['can_apply'] = bool(updater.exe_path()); return jsonify(ok=True, **d)
+    except Exception as e: return jsonify(ok=False, current=__version__, error=f'检查更新失败：{e}')
+@app.post('/api/update/skip')
+def upd_skip():
+    config.save({'skip_version': (request.json or {}).get('version', '')}); return jsonify(ok=True)
+@app.post('/api/update/download')
+def upd_download():
+    try: updater.start_download((request.json or {}).get('url', '')); return jsonify(ok=True)
+    except Exception as e: return jsonify(ok=False, error=str(e))
+@app.get('/api/update/status')
+def upd_status(): return jsonify(updater.ST)
+@app.post('/api/update/apply')
+def upd_apply():
+    try: TASK.stop(); updater.apply(); return jsonify(ok=True)
+    except Exception as e: return jsonify(ok=False, error=str(e))

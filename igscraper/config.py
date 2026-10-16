@@ -7,7 +7,7 @@ DEFAULT = {'cookie': '', 'ai_base': 'https://api.openai.com/v1', 'ai_key': '', '
            'tt_cookie': '', 'tt_ms_token': '', 'tt_device_id': '', 'tt_user_agent': '', 'tt_delay_min': 1.5, 'tt_delay_max': 3.0,
            'port': 8765,
            'ai_fps': 1, 'ai_max_images': '', 'ai_stt_model': '', 'ai_vision': '', 'ai_comment_pages': 5, 'ai_comments_send': 120, 'ai_product': {},
-           'ai_stt_provider': '', 'el_key': '', 'el_model': 'scribe_v2', 'el_lang': ''}
+           'ai_stt_provider': '', 'el_key': '', 'el_model': 'scribe_v2', 'el_lang': '', 'skip_version': ''}
 def path(): return os.path.join(data_dir(), 'config.json')
 def load():
     c = dict(DEFAULT)

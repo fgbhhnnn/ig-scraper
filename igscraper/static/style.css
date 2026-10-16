@@ -204,3 +204,9 @@ pre.has-copy{position:relative;padding-right:64px}.pre-copy{position:absolute;to
 .so-strip figcaption{font:600 11px ui-monospace,monospace;color:#4338ca;text-align:center}
 #fzoom{position:fixed;inset:0;z-index:1000;background:#000c;display:none;align-items:center;justify-content:center;cursor:zoom-out}#fzoom.show{display:flex}
 #fzoom img{max-height:86vh;max-width:90vw;border-radius:10px;image-rendering:auto;min-height:60vh;object-fit:contain}
+
+.upd-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:999}
+.upd-mask[hidden]{display:none}
+.upd-box{background:#fff;border-radius:12px;padding:20px 24px;width:min(560px,92vw);max-height:80vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+.upd-notes{max-height:40vh;overflow:auto;font-size:14px;background:#f7f7f9;padding:8px 12px;border-radius:8px;margin:8px 0}
+.upd-box progress{width:70%}
