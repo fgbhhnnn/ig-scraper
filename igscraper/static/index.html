@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>社媒同行采集器 (IG + FB + TikTok)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header><b>社媒同行采集器 (IG + FB + TikTok)</b><nav>
-<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a><a data-p="comments">⑥ 评论爬取</a><a data-p="ai">⑦ AI 分析</a></nav>
+<a data-p="cookie">① Cookie</a><a data-p="settings">② AI 设置</a><a data-p="task">③ 任务</a><a data-p="run">④ 进度</a><a data-p="results">⑤ 结果</a><a data-p="comments">⑥ 评论爬取</a><a data-p="ai">⑦ AI 分析</a><a data-p="social">⑧ 账号分析</a></nav>
 <a id="addr" class="pill" href="/" title="本程序地址，可收藏"></a><span id="ckstat" class="pill">IG: ?</span><span id="fbstat" class="pill">FB: ?</span><span id="ttstat" class="pill">TT: ?</span><button class="ghost" onclick="quitApp()">退出程序</button></header>
 <main>
 <section id="p-cookie"><h2>Cookie（每个平台单独保存）</h2>
@@ -210,6 +210,22 @@ MOQ
 <div id="rep_vers" class="rep-vers" hidden></div>
 <div id="a_replica"></div></div></div>
 </div></div></div>
+</section><section id="p-social" hidden class="social-page"><h2>账号分析：点赞用户 / 主页粉丝 / 裂变（Instagram）</h2>
+<p class="hint">只读获取，AI 用头像+用户名判断账号类型（品牌商 / 工厂/供应商 / 服务/博主 / 个人 / 不确定）。为降低风控，每次请求间隔 12~20 秒，每约 150 个请求自动休息几分钟；遇到 429、安全验证或登录失效会立即停止，已获取的结果自动保存。点赞分析请在「⑤ 结果」里点 Instagram 视频的「👍 点赞分析」。</p>
+<div class="tcard"><div class="tc-h"><span class="tn">1</span><h3>获取主页粉丝 / 关注</h3></div><div class="tc-b">
+<div class="fld"><div class="fl">Instagram 用户名或主页链接 <span class="hint">一行一个</span></div><textarea id="s_targets" rows="3" placeholder="form_leathercraft&#10;https://www.instagram.com/liliztouch/"></textarea></div>
+<div class="row"><label>获取<select id="s_which"><option value="followers">粉丝</option><option value="following">关注</option><option value="both">粉丝 + 关注</option></select></label>
+<label>每个账号数量<input id="s_count" type="number" min="1" value="100" style="width:110px"></label><label class="tg"><input type="checkbox" id="s_all" onchange="$('s_count').disabled=this.checked"><span></span>全部</label>
+<button onclick="sStart()">开始获取</button><button class="ghost" onclick="sStop()">停止</button></div>
+<p class="hint">粉丝每页约 25 个、关注每页约 50 个。按每次请求约 15 秒估算：1000 个粉丝约 10 分钟，1000 个关注约 5 分钟。数量很大时风险也更高，建议分批。私密账号无法获取。</p></div></div>
+<div class="row"><b id="s_stage">空闲</b><span>累计 IG 请求：<b id="s_req">0</b></span><span id="s_cur" class="hint"></span><span>排队：<b id="s_queue">0</b></span></div>
+<pre id="s_log" style="height:140px"></pre>
+<div class="grid-social"><div><h3>任务记录 <small class="hint">（自动保存）</small></h3><div id="s_jobs" class="s-jobs"></div></div>
+<div><div class="row"><h3 id="s_title" style="margin:0">选择左侧任务查看结果</h3></div><div id="s_sum" class="s-sum"></div>
+<div class="row"><label>类型筛选<select id="s_type" onchange="sLoad()"><option value="">全部</option><option value="商家">品牌商 + 工厂/供应商</option><option>品牌商</option><option>工厂/供应商</option><option>服务/博主</option><option>个人</option><option>不确定</option><option>未判断</option></select></label>
+<button class="ghost" onclick="sExport()">导出 CSV</button><button onclick="sFission()">🌱 对选中的商家裂变</button><span class="hint">裂变用上方的「获取 / 数量」设置</span></div>
+<p class="hint" id="s_note"></p>
+<table class="s-tb"><thead><tr><th><input type="checkbox" onchange="document.querySelectorAll('.ssel').forEach(c=>c.checked=this.checked)" style="width:auto"></th><th>头像</th><th>账号</th><th>AI 类型</th><th>理由</th><th></th></tr></thead><tbody id="s_tb"></tbody></table></div></div>
 </section></main><script src="/static/vendor/marked.min.js"></script><script src="/static/vendor/purify.min.js"></script><script src="/static/app.js"></script><div id="upd" class="upd-mask" hidden><div class="upd-box"><h3 id="upd_t"></h3><div id="upd_n" class="upd-notes"></div>
 <div id="upd_p" hidden><progress id="upd_bar" max="100" value="0"></progress> <span id="upd_pt"></span></div><p id="upd_e" class="err"></p>
 <div class="row" id="upd_btns"><button id="upd_go" onclick="updGo()">⬇️ 一键更新</button><button class="ghost" onclick="updSkip()">跳过此版本</button><button class="ghost" onclick="updClose()">以后再说</button></div></div></div>

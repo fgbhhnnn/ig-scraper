@@ -360,3 +360,45 @@ def upd_status(): return jsonify(updater.ST)
 def upd_apply():
     try: TASK.stop(); updater.apply(); return jsonify(ok=True)
     except Exception as e: return jsonify(ok=False, error=str(e))
+
+from . import social
+STASK = social.SocialTask()
+try: social.mark_interrupted()
+except Exception: pass
+@app.post('/api/social/start')
+def social_start():
+    c = config.load(); d = request.json or {}
+    if not c['cookie']: return jsonify(ok=False, error='请先在「Cookie」页面填写 Instagram Cookie'), 400
+    js = []
+    if d.get('kind') == 'likers':
+        v = (db.get_videos([d['key']]) or [{}])[0] if d.get('key') else {}
+        code = v.get('shortcode') or d.get('shortcode') or ''
+        js.append({'kind': 'likers', 'media_pk': v.get('media_id') or d.get('media_pk') or '', 'shortcode': code,
+                   'url': v.get('url') or d.get('url') or '', 'target': (v.get('account') or '') + ' 的视频 ' + code})
+    else:
+        which = d.get('which', 'followers'); kinds = ['followers', 'following'] if which == 'both' else [which]
+        cnt = 0 if d.get('all') else max(1, int(d.get('count') or 100))
+        for t in d.get('targets') or []:
+            if isinstance(t, str): t = {'target': t}
+            un = (t.get('target') or '').strip().lstrip('@').split('?')[0].rstrip('/').split('/')[-1]
+            if not un: continue
+            for k in kinds:
+                chain = (t.get('chain') + ' → ' + un) if t.get('chain') else un
+                js.append({'kind': k, 'target': un, 'target_pk': t.get('pk') or '', 'count': cnt, 'chain': chain,
+                           'level': int(t.get('level') or 0), 'parent': t.get('parent') or ''})
+    if not js: return jsonify(ok=False, error='请填写至少一个账号'), 400
+    return jsonify(ok=True, ids=STASK.add(c, js))
+@app.post('/api/social/stop')
+def social_stop(): STASK.stop(); return jsonify(ok=True)
+@app.get('/api/social/status')
+def social_status(): return jsonify(STASK.snapshot(int(request.args.get('since', 0))))
+@app.get('/api/social/jobs')
+def social_jobs(): return jsonify(social.jobs())
+@app.get('/api/social/users')
+def social_users(): return jsonify(social.users(request.args.get('job_id', ''), request.args.get('type', '')))
+@app.post('/api/social/delete')
+def social_del(): social.delete_job((request.json or {}).get('job_id', '')); return jsonify(ok=True)
+@app.get('/api/social/export')
+def social_export():
+    ids = [x for x in request.args.get('job_ids', '').split(',') if x]
+    return Response(social.export_csv(ids), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={time.strftime("ig_accounts_%Y%m%d_%H%M%S")}.csv'})

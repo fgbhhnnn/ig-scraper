@@ -210,3 +210,9 @@ pre.has-copy{position:relative;padding-right:64px}.pre-copy{position:absolute;to
 .upd-box{background:#fff;border-radius:12px;padding:20px 24px;width:min(560px,92vw);max-height:80vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)}
 .upd-notes{max-height:40vh;overflow:auto;font-size:14px;background:#f7f7f9;padding:8px 12px;border-radius:8px;margin:8px 0}
 .upd-box progress{width:70%}
+
+.grid-social{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+.s-jobs{max-height:70vh;overflow:auto}.s-job{border:1px solid #e5e5ea;border-radius:8px;padding:6px 8px;margin:4px 0;cursor:pointer;font-size:13px}
+.s-job.on{border-color:#4263eb;background:#edf2ff}.s-job .x{float:right;color:#c92a2a;font-size:12px}
+.s-sum span{display:inline-block;margin:4px 14px 4px 0}.s-tb{width:100%;border-collapse:collapse}.s-tb td{border-bottom:1px solid #eee;padding:5px;vertical-align:middle}
+.s-av{width:40px;height:40px;border-radius:50%;display:inline-block;background:#eee;object-fit:cover}.s-t{color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;white-space:nowrap}

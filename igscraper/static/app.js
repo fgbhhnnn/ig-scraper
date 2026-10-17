@@ -4,7 +4,7 @@ const lines=id=>$(id).value.split(/\n/).map(s=>s.trim()).filter(Boolean);
 const words=id=>$(id).value.split(/[,，\n]/).map(s=>s.trim()).filter(Boolean);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function msg(id,t,ok){$(id).textContent=t;$(id).className=ok?'ok':'err'}
-function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();if(p==='run')poll();if(p==='comments'){cLoad();cPoll()}if(p==='ai'){aList();aPoll()}localStorage.page=p}
+function show(p){document.querySelectorAll('section').forEach(s=>s.hidden=s.id!=='p-'+p);document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p));if(p==='results')loadResults();if(p==='run')poll();if(p==='comments'){cLoad();cPoll()}if(p==='ai'){aList();aPoll()}if(p==='social'){sJobs();sPoll()}localStorage.page=p}
 document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.p));
 const PK={instagram:['ckstat','IG: '],facebook:['fbstat','FB: '],tiktok:['ttstat','TT: ']};
 function ckPill(p,ok,t){const e=$(PK[p][0]);e.textContent=PK[p][1]+t;e.className='pill '+(ok?'ok':'bad')}
@@ -70,7 +70,7 @@ function renderResults(){const q=$('q').value.toLowerCase();let rs=R.filter(r=>!
  $('tb').innerHTML=rs.map(r=>{const fb=r.platform==='facebook',tt=r.platform==='tiktok';const k=r.platform+'|'+r.shortcode;return`<tr><td><input type="checkbox" class="sel" value="${esc(k)}" ${SEL.has(k)?'checked':''} onchange="this.checked?SEL.add(this.value):SEL.delete(this.value)" style="width:auto"></td><td><span class="tag ${fb?'fb':tt?'tt':'ig'}">${fb?'Facebook':tt?'TikTok':'Instagram'}</span></td><td>${r.content_type==='post'?'帖子':'视频'}</td>
  <td>${fb?esc(r.account):`<a href="${tt?'https://www.tiktok.com/@':'https://www.instagram.com/'}${esc(r.account)}${tt?'':'/'}" target="_blank">${esc(r.account)}</a>`}</td><td><a href="${esc(r.url)}" target="_blank">${fb?'打开':esc(r.shortcode)}</a></td>
  <td class="cap">${esc((r.caption||'').slice(0,120))}</td><td class="n">${(r.plays?r.plays.toLocaleString():'-')}</td><td class="n">${(r.likes||0).toLocaleString()}</td><td class="n">${r.comment_count}</td><td class="n">${r.shares==null?'-':r.shares.toLocaleString()}</td><td class="n"><b>${r.question_count}</b></td>
- <td class="q">${esc(r.sample_questions).replace(/ \|\| /g,'<br>')}</td><td class="n">${r.cf_count==null?'-':`<details class="cfd"><summary><b>${r.cf_count}</b> 条</summary><div>${esc(r.cf_samples||'').split(' || ').map(x=>`<p>${x}</p>`).join('')}</div></details>`}</td><td>${esc(r.publish_date)}</td><td>${esc(r.source)}</td><td>${r.content_type==='post'?'':`<button class="ghost" onclick="aGo({key:'${esc(k)}'})">🤖 AI 分析</button>`}</td></tr>`}).join('')}
+ <td class="q">${esc(r.sample_questions).replace(/ \|\| /g,'<br>')}</td><td class="n">${r.cf_count==null?'-':`<details class="cfd"><summary><b>${r.cf_count}</b> 条</summary><div>${esc(r.cf_samples||'').split(' || ').map(x=>`<p>${x}</p>`).join('')}</div></details>`}</td><td>${esc(r.publish_date)}</td><td>${esc(r.source)}</td><td>${r.content_type==='post'?'':`<button class="ghost" onclick="aGo({key:'${esc(k)}'})">🤖 AI 分析</button>${r.platform==='instagram'?`<button class="ghost" onclick="sLikers('${esc(k)}')">👍 点赞分析</button>`:''}`}</td></tr>`}).join('')}
 function exp(f){const p=new URLSearchParams({fmt:f,q:$('q').value,platform:$('f_platform').value,content_type:$('f_ctype').value});if($('only_run').checked&&lastRun)p.set('run_id',lastRun);location.href='/api/export?'+p}
 async function clearDb(){if(confirm('确定清空本地数据库？（包括「已抓过」记录）')){await api('/api/results/clear',{});loadResults()}}
 async function quitApp(){if(confirm('退出程序？')){await api('/api/quit',{});document.body.innerHTML='<h2 style="padding:40px">程序已退出，可以关闭此页面。</h2>'}}
@@ -228,3 +228,30 @@ async function updGo(){$('upd_e').textContent='';const r=await api('/api/update/
   if(s.state==='ready'){clearInterval(t);$('upd_pt').textContent='下载完成，正在替换并重启…';await api('/api/update/apply',{});
    document.body.innerHTML='<h2 style="padding:40px">正在更新到 v'+UPD.latest+'，程序会自动重新打开，请稍候几秒后刷新本页。</h2>';setTimeout(()=>location.reload(),9000)}},500)}
 setTimeout(()=>updCheck(false),1500);
+
+// ---------- ⑧ 账号分析 ----------
+let sJob=null,sLogN=0,sTimer=null,SJOBS=[];
+const TCOL={'品牌商':'#e8590c','工厂/供应商':'#1971c2','服务/博主':'#2f9e44','个人':'#868e96','不确定':'#adb5bd'};
+const SREL={likers:'点赞',followers:'粉丝',following:'关注'};
+async function sLikers(k){const d=await api('/api/social/start',{kind:'likers',key:k});if(!d.ok)return alert(d.error);sJob=d.ids[0];show('social')}
+async function sStart(t){const ts=t||lines('s_targets');if(!ts.length)return alert('请填写账号');const d=await api('/api/social/start',{targets:ts,which:$('s_which').value,count:$('s_count').value,all:$('s_all').checked});if(!d.ok)return alert(d.error);sJob=d.ids[0];sJobs();sPoll()}
+async function sStop(){await api('/api/social/stop',{})}
+async function sPoll(){clearTimeout(sTimer);const s=await api('/api/social/status?since='+sLogN);sLogN=s.log_total;if(s.logs.length){$('s_log').textContent+=s.logs.join('\n')+'\n';$('s_log').scrollTop=1e9}
+ $('s_stage').textContent=s.error?'⛔ '+s.error:(s.running?'运行中':s.stage);$('s_stage').className=s.error?'err':'';$('s_req').textContent=s.requests;$('s_cur').textContent=s.current||'';$('s_queue').textContent=s.queue;
+ if(s.running){sJobs(true);sTimer=setTimeout(sPoll,3000)}else sJobs(true)}
+async function sJobs(keep){SJOBS=await api('/api/social/jobs');$('s_jobs').innerHTML=SJOBS.map(j=>{const b=(j.counts['品牌商']||0)+(j.counts['工厂/供应商']||0);return`<div class="s-job ${j.id===sJob?'on':''}" onclick="sJob='${j.id}';sJobs();sLoad()" style="margin-left:${j.level*14}px"><b>${SREL[j.kind]||j.kind}</b> ${esc(j.chain)} <small>L${j.level}</small><br><small>${esc(j.status)} · ${j.n} 人 · 商家 ${b}${j.note?' · '+esc(j.note):''}</small> <a class="x" onclick="event.stopPropagation();sDel('${j.id}')">删除</a></div>`}).join('')||'<p class="hint">还没有记录</p>';if(sJob)sLoad()}
+async function sDel(id){if(!confirm('删除这条记录及其名单？'))return;await api('/api/social/delete',{job_id:id});if(sJob===id)sJob=null;sJobs()}
+async function sLoad(){const j=SJOBS.find(x=>x.id===sJob);if(!j)return;$('s_title').textContent=`${SREL[j.kind]||j.kind}：${j.chain}（第 ${j.level} 层）`;
+ const c=j.counts,n=j.n||0,b=(c['品牌商']||0)+(c['工厂/供应商']||0);
+ $('s_sum').innerHTML=`<span>共 <b>${n}</b> 人</span>`+['品牌商','工厂/供应商','服务/博主','个人','不确定','未判断'].map(t=>`<span>${t} <b>${c[t]||0}</b></span>`).join('')+`<span>商家占比 <b>${n?(b*100/n).toFixed(1):0}%</b></span>`;
+ $('s_note').textContent=j.kind==='likers'?'注：Instagram 只返回约 100 个点赞用户（按其排序），不是全部点赞。':(j.note||'');
+ const us=await api(`/api/social/users?job_id=${j.id}&type=${encodeURIComponent($('s_type').value)}`);
+ $('s_tb').innerHTML=us.map(u=>{const biz=u.type==='品牌商'||u.type==='工厂/供应商';return`<tr><td>${biz&&!u.is_private?`<input type="checkbox" class="ssel" value="${esc(u.username)}" data-pk="${esc(u.pk)}" style="width:auto">`:''}</td><td>${u.pic?`<img class="s-av" src="data:image/jpeg;base64,${u.pic}">`:'<span class="s-av"></span>'}</td>
+ <td><a href="${esc(u.profile_url)}" target="_blank">@${esc(u.username)}</a>${u.is_verified?' ✔':''}${u.is_private?' 🔒':''}<br><small>${esc(u.full_name)}</small></td>
+ <td>${u.type?`<span class="s-t" style="background:${TCOL[u.type]||'#adb5bd'}">${esc(u.type)}</span> <small>${u.confidence??''}</small>`:'<small class="hint">未判断</small>'}</td><td class="q">${esc(u.reason||'')}</td>
+ <td>${biz&&!u.is_private?`<button class="ghost" onclick="sFission(['${esc(u.username)}'],['${esc(u.pk)}'])">🌱 裂变</button>`:''}</td></tr>`}).join('')||'<tr><td colspan="6" class="hint">没有数据</td></tr>'}
+function sFission(names,pks){const j=SJOBS.find(x=>x.id===sJob);if(!j)return alert('先选择一个任务');
+ if(!names){const cs=[...document.querySelectorAll('.ssel:checked')];names=cs.map(c=>c.value);pks=cs.map(c=>c.dataset.pk)}
+ if(!names.length)return alert('请先勾选品牌商/工厂账号');
+ const base=j.kind==='likers'?j.chain:j.chain;sStart(names.map((n,i)=>({target:n,pk:pks[i],chain:base,level:j.level+1,parent:j.id})))}
+function sExport(){const ids=sJob?[sJob]:SJOBS.map(j=>j.id);location.href='/api/social/export?job_ids='+ids.join(',')}
