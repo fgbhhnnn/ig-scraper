@@ -40,8 +40,9 @@ def test_download_and_mz_check(tmp_path, monkeypatch):
     srv.shutdown()
 
 def test_bat_script():
-    s = updater.bat_script(r'C:\a b\Social-Scraper.exe', 4321)
-    assert 'PID eq 4321' in s and 'Social-Scraper.exe.new' in s and 'Social-Scraper.exe.old' in s and 'start ""' in s
+    s = updater.bat_script(r'C:\a b\测试\Social-Scraper.exe', [4321, 99])
+    assert 'PID eq 4321' in s and 'PID eq 99' in s and 'PYINSTALLER_RESET_ENVIRONMENT=1' in s and 'set _PYI_ARCHIVE_FILE=' in s
+    assert r'C:\a b\测试\update.log' in s and 'goto mv' in s and 'Social-Scraper.exe.new' in s and 'Social-Scraper.exe.old' in s and 'start ""' in s
 
 def test_api_routes(monkeypatch, tmp_path):
     monkeypatch.setenv('IGS_DATA_DIR', str(tmp_path))
@@ -52,3 +53,13 @@ def test_api_routes(monkeypatch, tmp_path):
     assert d['ok'] and d['newer'] and not d['skipped'] and d['can_apply'] is False
     c.post('/api/update/skip', json={'version': '9.9.9'})
     assert c.get('/api/update/check').json['skipped']
+
+def test_clean_env():
+    e = updater.clean_env({'PATH': 'x', '_MEIPASS2': 'C:/t/_MEI1', '_PYI_APPLICATION_HOME_DIR': 'C:/t/_MEI1', '_PYI_PARENT_PROCESS_LEVEL': '1', '_PYI_ARCHIVE_FILE': 'a'})
+    assert e == {'PATH': 'x', 'PYINSTALLER_RESET_ENVIRONMENT': '1'}
+
+def test_local_url_only_with_flag(monkeypatch):
+    monkeypatch.delenv('IGS_UPDATE_ALLOW_LOCAL', raising=False)
+    assert not updater._allowed('http://127.0.0.1:8000/new.exe')
+    monkeypatch.setenv('IGS_UPDATE_ALLOW_LOCAL', '1')
+    assert updater._allowed('http://127.0.0.1:8000/new.exe') and not updater._allowed('http://evil.com/a.exe')

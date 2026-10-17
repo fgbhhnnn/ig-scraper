@@ -47,29 +47,83 @@ def _download(url, dest):
     except Exception as e:
         ST.update(state='error', error=str(e))
 
+def _allowed(url):
+    if str(url).startswith(f'https://github.com/{REPO}/releases/download/'): return True
+    # 仅供自动化测试（GitHub Actions 里的 Windows 端到端更新测试）使用本机地址
+    return os.environ.get('IGS_UPDATE_ALLOW_LOCAL') == '1' and str(url).startswith('http://127.0.0.1:')
+
 def start_download(url):
     exe = exe_path()
     if not exe: raise RuntimeError('只有 exe 版本支持自动更新')
-    if not str(url).startswith(f'https://github.com/{REPO}/releases/download/'): raise RuntimeError('下载地址不合法')
+    if not _allowed(url): raise RuntimeError('下载地址不合法')
     if ST['state'] == 'downloading': return
     threading.Thread(target=_download, args=(url, exe + '.new'), daemon=True).start()
 
-def bat_script(exe, pid):
-    """Wait for this process to exit, swap exe (keep .old backup), restart. Rolls back if move fails."""
-    name = os.path.basename(exe)
-    return ('@echo off\r\nchcp 65001 >nul\r\n'
-            f':w\r\ntasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto w)\r\n'
-            f'del /f /q "{exe}.old" 2>nul\r\n'
-            f'move /y "{exe}" "{exe}.old" >nul || goto fail\r\n'
-            f'move /y "{exe}.new" "{exe}" >nul || (move /y "{exe}.old" "{exe}" >nul & goto fail)\r\n'
-            f'start "" "{exe}"\r\ngoto end\r\n'
-            f':fail\r\nstart "" "{exe}"\r\n'
-            f':end\r\ndel "%~f0"\r\n')
+def log_path(exe=None):
+    exe = exe or exe_path()
+    return os.path.join(os.path.dirname(exe), 'update.log') if exe else ''
+
+def ulog(msg, exe=None):
+    p = log_path(exe)
+    if not p: return
+    try:
+        import time
+        with open(p, 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + str(msg) + '\n')
+    except Exception: pass
+
+def bat_script(exe, pids):
+    """等旧进程（onefile 的子进程 + 引导父进程）全部退出 → 重试替换 exe（保留 .old，失败回滚）→ 用干净环境启动新版 → 写 update.log。"""
+    log = log_path(exe)
+    L = lambda m: f'echo %date% %time% {m}>>"{log}"\r\n'
+    wait = ''.join(f':w{p}\r\nset /a n+=1\r\nif %n% gtr 120 goto waited\r\n'
+                   f'tasklist /NH /FI "PID eq {p}" 2>nul | find " {p} " >nul && (ping -n 2 127.0.0.1 >nul & goto w{p})\r\n' for p in pids)
+    return ('@echo off\r\nchcp 65001 >nul\r\nsetlocal\r\n'
+            # 不要继承旧进程的 PyInstaller 运行时变量，否则新 exe 会去用旧的（已删除的）_MEI 临时目录而启动失败
+            'set PYINSTALLER_RESET_ENVIRONMENT=1\r\nset _MEIPASS2=\r\nset _PYI_APPLICATION_HOME_DIR=\r\nset _PYI_ARCHIVE_FILE=\r\n'
+            'set _PYI_PARENT_PROCESS_LEVEL=\r\nset _PYI_SPLASH_IPC=\r\nset _PYI_LINUX_PROCESS_NAME=\r\n'
+            + L('更新脚本开始，等待旧进程退出') + 'set n=0\r\n' + wait + ':waited\r\n' + L('旧进程已退出（或等待超时）')
+            + 'ping -n 3 127.0.0.1 >nul\r\n'
+            f'del /f /q "{exe}.old" 2>nul\r\nset t=0\r\n'
+            f':mv\r\nmove /y "{exe}" "{exe}.old" >nul 2>&1 && goto mv2\r\nset /a t+=1\r\n'
+            f'if %t% geq 30 (' + L('无法移动旧 exe（可能被占用或被杀毒软件锁定）').rstrip('\r\n') + ' & goto start)\r\nping -n 2 127.0.0.1 >nul\r\ngoto mv\r\n'
+            f':mv2\r\nmove /y "{exe}.new" "{exe}" >nul 2>&1 && (' + L('已替换为新版本').rstrip('\r\n') + ' & goto start)\r\n'
+            f'move /y "{exe}.old" "{exe}" >nul 2>&1\r\n' + L('替换失败，已回滚旧版本')
+            + f':start\r\n' + L('启动程序') + f'start "" /D "{os.path.dirname(exe)}" "{exe}"\r\n'
+            'endlocal\r\n(goto) 2>nul & del "%~f0"\r\n')
+
+def clean_env(env=None):
+    e = dict(os.environ if env is None else env)
+    for k in list(e):
+        if k.startswith('_PYI_') or k in ('_MEIPASS2', '_MEIPASS'): e.pop(k)
+    e['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    return e
+
+def startup_cleanup():
+    """新版本启动后：删掉 .old 备份和残留的更新脚本"""
+    exe = exe_path()
+    if not exe: return
+    import time
+    for p in (exe + '.old', os.path.join(os.path.dirname(exe), '_update.bat')):
+        for _ in range(5):
+            try:
+                if os.path.exists(p): os.remove(p); ulog(f'已清理 {os.path.basename(p)}')
+                break
+            except Exception: time.sleep(1)
 
 def apply():
     exe = exe_path()
     if ST['state'] != 'ready' or not exe or not os.path.exists(exe + '.new'): raise RuntimeError('新版本还没下载完成')
     bat = os.path.join(os.path.dirname(exe), '_update.bat')
-    with open(bat, 'w', encoding='utf-8') as f: f.write(bat_script(exe, os.getpid()))
-    subprocess.Popen(['cmd', '/c', bat], creationflags=0x08000000 | 0x00000008, close_fds=True)  # NO_WINDOW|DETACHED
+    pids = [os.getpid()]
+    try:
+        pp = os.getppid()
+        if pp and pp != os.getpid(): pids.append(pp)   # onefile：引导父进程也持有 exe 文件锁
+    except Exception: pass
+    with open(bat, 'w', encoding='utf-8') as f: f.write(bat_script(exe, pids))
+    ulog(f'开始更新：当前 {__version__}，等待进程 {pids}')
+    # CREATE_NO_WINDOW（不要 DETACHED_PROCESS：那样 tasklist/ping 等控制台程序会各自弹出可见黑框）
+    # CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB：旧程序退出时不连带结束更新脚本
+    flags = 0x08000000 | 0x00000200
+    try: subprocess.Popen(['cmd', '/c', bat], creationflags=flags | 0x01000000, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
+    except OSError: subprocess.Popen(['cmd', '/c', bat], creationflags=flags, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
     threading.Timer(0.8, lambda: os._exit(0)).start()

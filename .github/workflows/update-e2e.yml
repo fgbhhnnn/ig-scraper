@@ -1,0 +1,25 @@
+name: update-e2e
+on: { push: { branches: [main] }, workflow_dispatch: {} }
+jobs:
+  e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python tools/fetch_signer.py
+      - name: build new (9.9.9)
+        shell: pwsh
+        run: |
+          Copy-Item igscraper\__init__.py init.bak
+          Set-Content igscraper\__init__.py "__version__ = '9.9.9'"
+          pyinstaller --noconfirm ig-scraper.spec
+          Move-Item dist dist_new
+          Copy-Item init.bak igscraper\__init__.py -Force
+      - name: build old (current)
+        run: pyinstaller --noconfirm ig-scraper.spec && move dist dist_old
+        shell: cmd
+      - name: end-to-end update
+        shell: pwsh
+        run: ./tools/update_e2e.ps1

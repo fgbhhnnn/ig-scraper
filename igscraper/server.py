@@ -131,7 +131,9 @@ def export():
 APP_ID = 'social-scraper'
 PORT = [8765]
 @app.get('/api/ping')
-def ping(): return jsonify(app=APP_ID, port=PORT[0])
+def ping():
+    from . import __version__
+    return jsonify(app=APP_ID, port=PORT[0], version=__version__)
 
 def _alert(msg):
     print(msg, flush=True)
@@ -168,6 +170,9 @@ def run(open_browser=True, port=None):
                f'2. 用记事本打开 {os.path.join(data_dir(), "config.json")}，把 "port" 改成其他端口（如 8766），保存后重新打开。')
         return 2
     db.init()
+    try:
+        from . import updater; updater.startup_cleanup()
+    except Exception: pass
     print('社媒同行采集器已启动:', url, '数据目录:', data_dir(), flush=True)
     if open_browser: threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run('127.0.0.1', port, threaded=True, use_reloader=False)
