@@ -19,6 +19,7 @@ if (-not $p) {
   throw '旧版本没有启动' }
 Write-Host "old started after $i s"
 Write-Host "old version: $($p.version)"
+if ($p.version -eq '9.9.9') { throw '旧 exe 版本不对（构建缓存）' }
 $old = $p.version
 Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/update/download -ContentType 'application/json' -Body '{"url":"http://127.0.0.1:8000/new.exe"}' | Out-Host
 for ($i=0; $i -lt 120; $i++) { $s = Invoke-RestMethod http://127.0.0.1:8765/api/update/status; if ($s.state -ne 'downloading') { break }; Start-Sleep 1 }

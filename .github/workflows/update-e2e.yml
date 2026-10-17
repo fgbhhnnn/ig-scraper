@@ -14,11 +14,11 @@ jobs:
         run: |
           Copy-Item igscraper\__init__.py init.bak
           Set-Content igscraper\__init__.py "__version__ = '9.9.9'"
-          pyinstaller --noconfirm ig-scraper.spec
+          pyinstaller --noconfirm --clean ig-scraper.spec
           Move-Item dist dist_new
           Copy-Item init.bak igscraper\__init__.py -Force
       - name: build old (current)
-        run: pyinstaller --noconfirm ig-scraper.spec && move dist dist_old
+        run: rmdir /s /q build & pyinstaller --noconfirm --clean ig-scraper.spec && move dist dist_old
         shell: cmd
       - name: source smoke test
         shell: pwsh
