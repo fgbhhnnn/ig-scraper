@@ -23,7 +23,7 @@ jobs:
       - name: source smoke test
         shell: pwsh
         run: |
-          $env:IGS_NO_BROWSER='1'; $env:IGS_PORT='8790'
+          $env:IGS_NO_BROWSER='1'; $env:IGS_PORT='8790'; $env:PYTHONIOENCODING='utf-8'
           $p = Start-Process python -ArgumentList 'run.py' -PassThru -RedirectStandardError err.txt -RedirectStandardOutput out.txt
           Start-Sleep 15
           try { Invoke-RestMethod http://127.0.0.1:8790/api/ping | Out-Host } catch { Write-Host "source ping failed: $_" }
