@@ -13,6 +13,8 @@ function Ping8765 { try { (Invoke-RestMethod http://127.0.0.1:8765/api/ping -Tim
 for ($i=0; $i -lt 240; $i++) { $p = Ping8765; if ($p) { break }; Start-Sleep 1 }
 if (-not $p) {
   Get-Process Social* -ErrorAction SilentlyContinue | Out-Host
+  pip install -q py-spy | Out-Null
+  foreach ($pr in (Get-Process Social* -ErrorAction SilentlyContinue)) { Write-Host "== py-spy $($pr.Id)"; py-spy dump --pid $pr.Id 2>&1 | Out-Host }
   Get-ChildItem -LiteralPath $dir -Recurse | Out-Host
   Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Out-Host
   Get-WinEvent -LogName Application -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated,ProviderName,Message | Out-String -Width 300 | Out-Host

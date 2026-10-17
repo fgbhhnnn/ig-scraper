@@ -20,6 +20,15 @@ jobs:
       - name: build old (current)
         run: pyinstaller --noconfirm ig-scraper.spec && move dist dist_old
         shell: cmd
+      - name: source smoke test
+        shell: pwsh
+        run: |
+          $env:IGS_NO_BROWSER='1'; $env:IGS_PORT='8790'
+          $p = Start-Process python -ArgumentList 'run.py' -PassThru -RedirectStandardError err.txt -RedirectStandardOutput out.txt
+          Start-Sleep 15
+          try { Invoke-RestMethod http://127.0.0.1:8790/api/ping | Out-Host } catch { Write-Host "source ping failed: $_" }
+          Get-Content out.txt,err.txt | Out-Host
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
       - name: end-to-end update
         shell: pwsh
         run: ./tools/update_e2e.ps1
