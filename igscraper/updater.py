@@ -71,26 +71,34 @@ def ulog(msg, exe=None):
         with open(p, 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + str(msg) + '\n')
     except Exception: pass
 
-def bat_script(exe, pids):
-    """等旧进程（onefile 的子进程 + 引导父进程）全部退出 → 重试替换 exe（保留 .old，失败回滚）→ 用干净环境启动新版 → 写 update.log。"""
+def _psq(x): return "'" + str(x).replace("'", "''") + "'"
+
+def ps_script(exe, pids):
+    """PowerShell 更新脚本（隐藏窗口运行）：-LiteralPath 处理空格/括号/中文路径；等待旧进程最多 30 秒，超时强制结束；
+    重试替换 exe（保留 .old，失败回滚）；清掉 PyInstaller 运行时变量后启动新版；全程写 update.log。"""
     import ntpath   # 脚本只在 Windows 上运行
     d = ntpath.dirname(exe); log = ntpath.join(d, 'update.log')
-    L = lambda m: f'echo %date% %time% {m}>>"{log}"\r\n'
-    wait = ''.join(f':w{p}\r\nset /a n+=1\r\nif %n% gtr 120 goto waited\r\n'
-                   f'tasklist /NH /FI "PID eq {p}" 2>nul | find " {p} " >nul && (ping -n 2 127.0.0.1 >nul & goto w{p})\r\n' for p in pids)
-    return ('@echo off\r\nchcp 65001 >nul\r\nsetlocal\r\n'
-            # 不要继承旧进程的 PyInstaller 运行时变量，否则新 exe 会去用旧的（已删除的）_MEI 临时目录而启动失败
-            'set PYINSTALLER_RESET_ENVIRONMENT=1\r\nset _MEIPASS2=\r\nset _PYI_APPLICATION_HOME_DIR=\r\nset _PYI_ARCHIVE_FILE=\r\n'
-            'set _PYI_PARENT_PROCESS_LEVEL=\r\nset _PYI_SPLASH_IPC=\r\nset _PYI_LINUX_PROCESS_NAME=\r\n'
-            + L('更新脚本开始，等待旧进程退出') + 'set n=0\r\n' + wait + ':waited\r\n' + L('旧进程已退出（或等待超时）')
-            + 'ping -n 3 127.0.0.1 >nul\r\n'
-            f'del /f /q "{exe}.old" 2>nul\r\nset t=0\r\n'
-            f':mv\r\nmove /y "{exe}" "{exe}.old" >nul 2>&1 && goto mv2\r\nset /a t+=1\r\n'
-            f'if %t% geq 30 (' + L('无法移动旧 exe（可能被占用或被杀毒软件锁定）').rstrip('\r\n') + ' & goto start)\r\nping -n 2 127.0.0.1 >nul\r\ngoto mv\r\n'
-            f':mv2\r\nmove /y "{exe}.new" "{exe}" >nul 2>&1 && (' + L('已替换为新版本').rstrip('\r\n') + ' & goto start)\r\n'
-            f'move /y "{exe}.old" "{exe}" >nul 2>&1\r\n' + L('替换失败，已回滚旧版本')
-            + f':start\r\n' + L('启动程序') + f'start "" /D "{d}" "{exe}"\r\n'
-            'endlocal\r\n(goto) 2>nul & del "%~f0"\r\n')
+    return '\r\n'.join([
+        "$ErrorActionPreference = 'Continue'",
+        f"$exe = {_psq(exe)}; $dir = {_psq(d)}; $log = {_psq(log)}",
+        "function L($m) { try { Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $m) -Encoding UTF8 } catch {} }",
+        f"$pids = @({','.join(str(int(p)) for p in pids)})",
+        "L ('更新脚本开始，等待旧进程退出：' + ($pids -join ','))",
+        "foreach ($p in $pids) { try { Wait-Process -Id $p -Timeout 30 -ErrorAction Stop } catch {} ;"
+        " if (Get-Process -Id $p -ErrorAction SilentlyContinue) { L ('进程 ' + $p + ' 30 秒未退出，强制结束'); Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Start-Sleep 2 } }",
+        "Start-Sleep -Milliseconds 1500",
+        "Remove-Item -LiteralPath ($exe + '.old') -Force -ErrorAction SilentlyContinue",
+        "$moved = $false",
+        "for ($i = 0; $i -lt 30 -and -not $moved; $i++) { try { Move-Item -LiteralPath $exe -Destination ($exe + '.old') -Force -ErrorAction Stop; $moved = $true } catch { Start-Sleep 1 } }",
+        "if ($moved) { try { Move-Item -LiteralPath ($exe + '.new') -Destination $exe -Force -ErrorAction Stop; L '已替换为新版本' }"
+        " catch { L ('替换失败，回滚：' + $_); Move-Item -LiteralPath ($exe + '.old') -Destination $exe -Force -ErrorAction SilentlyContinue } }",
+        "else { L '无法移动旧 exe（可能被占用或被杀毒软件锁定），继续使用旧版本' }",
+        "try { Unblock-File -LiteralPath $exe -ErrorAction SilentlyContinue } catch {}",
+        "foreach ($k in @('_MEIPASS2','_PYI_APPLICATION_HOME_DIR','_PYI_ARCHIVE_FILE','_PYI_PARENT_PROCESS_LEVEL','_PYI_SPLASH_IPC')) { Remove-Item -LiteralPath ('Env:' + $k) -ErrorAction SilentlyContinue }",
+        "$env:PYINSTALLER_RESET_ENVIRONMENT = '1'",
+        "try { Start-Process -FilePath $exe -WorkingDirectory $dir; L '已启动程序' } catch { L ('启动失败：' + $_) }",
+        "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
+        ''])
 
 def clean_env(env=None):
     e = dict(os.environ if env is None else env)
@@ -104,7 +112,7 @@ def startup_cleanup():
     exe = exe_path()
     if not exe: return
     import time
-    for p in (exe + '.old', os.path.join(os.path.dirname(exe), '_update.bat')):
+    for p in (exe + '.old', os.path.join(os.path.dirname(exe), '_update.bat'), os.path.join(os.path.dirname(exe), '_update.ps1')):
         for _ in range(5):
             try:
                 if os.path.exists(p): os.remove(p); ulog(f'已清理 {os.path.basename(p)}')
@@ -114,17 +122,17 @@ def startup_cleanup():
 def apply():
     exe = exe_path()
     if ST['state'] != 'ready' or not exe or not os.path.exists(exe + '.new'): raise RuntimeError('新版本还没下载完成')
-    bat = os.path.join(os.path.dirname(exe), '_update.bat')
+    script = os.path.join(os.path.dirname(exe), '_update.ps1')
     pids = [os.getpid()]
     try:
         pp = os.getppid()
         if pp and pp != os.getpid(): pids.append(pp)   # onefile：引导父进程也持有 exe 文件锁
     except Exception: pass
-    with open(bat, 'w', encoding='utf-8') as f: f.write(bat_script(exe, pids))
+    with open(script, 'w', encoding='utf-8-sig') as f: f.write(ps_script(exe, pids))   # BOM：Windows PowerShell 5 才能正确读中文
     ulog(f'开始更新：当前 {__version__}，等待进程 {pids}')
-    # CREATE_NO_WINDOW（不要 DETACHED_PROCESS：那样 tasklist/ping 等控制台程序会各自弹出可见黑框）
-    # CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB：旧程序退出时不连带结束更新脚本
+    cmd = ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script]
+    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP (+ BREAKAWAY_FROM_JOB)：不弹黑框，旧程序退出时不连带结束脚本
     flags = 0x08000000 | 0x00000200
-    try: subprocess.Popen(['cmd', '/c', bat], creationflags=flags | 0x01000000, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
-    except OSError: subprocess.Popen(['cmd', '/c', bat], creationflags=flags, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
+    try: subprocess.Popen(cmd, creationflags=flags | 0x01000000, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
+    except OSError: subprocess.Popen(cmd, creationflags=flags, close_fds=True, env=clean_env(), cwd=os.path.dirname(exe))
     threading.Timer(0.8, lambda: os._exit(0)).start()

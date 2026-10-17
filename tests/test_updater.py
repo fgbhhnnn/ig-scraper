@@ -39,10 +39,12 @@ def test_download_and_mz_check(tmp_path, monkeypatch):
     assert updater.ST['state'] == 'ready' and open(dest, 'rb').read() == body
     srv.shutdown()
 
-def test_bat_script():
-    s = updater.bat_script(r'C:\a b\测试\Social-Scraper.exe', [4321, 99])
-    assert 'PID eq 4321' in s and 'PID eq 99' in s and 'PYINSTALLER_RESET_ENVIRONMENT=1' in s and 'set _PYI_ARCHIVE_FILE=' in s
-    assert r'C:\a b\测试\update.log' in s and 'goto mv' in s and 'Social-Scraper.exe.new' in s and 'Social-Scraper.exe.old' in s and 'start ""' in s
+def test_ps_script():
+    s = updater.ps_script(r"C:\a b\测试 (x)\Social-Scraper (1).exe", [4321, 99])
+    assert "$exe = 'C:\\a b\\测试 (x)\\Social-Scraper (1).exe'" in s and '@(4321,99)' in s and 'Wait-Process -Id $p -Timeout 30' in s
+    assert 'Stop-Process -Id $p -Force' in s and "PYINSTALLER_RESET_ENVIRONMENT = '1'" in s and 'Start-Process -FilePath $exe' in s
+    assert "update.log'" in s and 'LiteralPath' in s
+    assert "'it''s'" == updater._psq("it's")
 
 def test_api_routes(monkeypatch, tmp_path):
     monkeypatch.setenv('IGS_DATA_DIR', str(tmp_path))
