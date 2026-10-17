@@ -10,8 +10,14 @@ $srv = Start-Process python -ArgumentList '-m','http.server','8000','--directory
 $env:IGS_UPDATE_ALLOW_LOCAL = '1'
 Start-Process -FilePath (Join-Path $dir $name) -WorkingDirectory $dir
 function Ping8765 { try { (Invoke-RestMethod http://127.0.0.1:8765/api/ping -TimeoutSec 3) } catch { $null } }
-for ($i=0; $i -lt 90; $i++) { $p = Ping8765; if ($p) { break }; Start-Sleep 1 }
-if (-not $p) { throw '旧版本没有启动' }
+for ($i=0; $i -lt 240; $i++) { $p = Ping8765; if ($p) { break }; Start-Sleep 1 }
+if (-not $p) {
+  Get-Process Social* -ErrorAction SilentlyContinue | Out-Host
+  Get-ChildItem -LiteralPath $dir -Recurse | Out-Host
+  Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Out-Host
+  Get-WinEvent -LogName Application -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated,ProviderName,Message | Out-String -Width 300 | Out-Host
+  throw '旧版本没有启动' }
+Write-Host "old started after $i s"
 Write-Host "old version: $($p.version)"
 $old = $p.version
 Invoke-RestMethod -Method Post http://127.0.0.1:8765/api/update/download -ContentType 'application/json' -Body '{"url":"http://127.0.0.1:8000/new.exe"}' | Out-Host
