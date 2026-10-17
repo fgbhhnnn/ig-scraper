@@ -73,7 +73,8 @@ def ulog(msg, exe=None):
 
 def bat_script(exe, pids):
     """等旧进程（onefile 的子进程 + 引导父进程）全部退出 → 重试替换 exe（保留 .old，失败回滚）→ 用干净环境启动新版 → 写 update.log。"""
-    log = log_path(exe)
+    import ntpath   # 脚本只在 Windows 上运行
+    d = ntpath.dirname(exe); log = ntpath.join(d, 'update.log')
     L = lambda m: f'echo %date% %time% {m}>>"{log}"\r\n'
     wait = ''.join(f':w{p}\r\nset /a n+=1\r\nif %n% gtr 120 goto waited\r\n'
                    f'tasklist /NH /FI "PID eq {p}" 2>nul | find " {p} " >nul && (ping -n 2 127.0.0.1 >nul & goto w{p})\r\n' for p in pids)
@@ -88,7 +89,7 @@ def bat_script(exe, pids):
             f'if %t% geq 30 (' + L('无法移动旧 exe（可能被占用或被杀毒软件锁定）').rstrip('\r\n') + ' & goto start)\r\nping -n 2 127.0.0.1 >nul\r\ngoto mv\r\n'
             f':mv2\r\nmove /y "{exe}.new" "{exe}" >nul 2>&1 && (' + L('已替换为新版本').rstrip('\r\n') + ' & goto start)\r\n'
             f'move /y "{exe}.old" "{exe}" >nul 2>&1\r\n' + L('替换失败，已回滚旧版本')
-            + f':start\r\n' + L('启动程序') + f'start "" /D "{os.path.dirname(exe)}" "{exe}"\r\n'
+            + f':start\r\n' + L('启动程序') + f'start "" /D "{d}" "{exe}"\r\n'
             'endlocal\r\n(goto) 2>nul & del "%~f0"\r\n')
 
 def clean_env(env=None):
