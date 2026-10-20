@@ -124,7 +124,7 @@ class Task:
             def done(): config.save({'fb_docs': cl.export_docs()})
         else:
             if not cfg.get('cookie'): raise Blocked('请先在「Cookie」页面填写 Instagram Cookie')
-            cl = IG(cfg['cookie'], float(cfg.get('delay_min', 1.5)), float(cfg.get('delay_max', 3)), self.log, stopf)
+            cl = IG(cfg['cookie'], float(cfg.get('delay_min', 8)), float(cfg.get('delay_max', 15)), self.log, stopf)
             def gen(kind, s):
                 return cl.keyword_media(s, spages) if kind == 'kw' else cl.tag_media(s)
             def comments(v):

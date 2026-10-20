@@ -58,11 +58,12 @@ class _R:
 class _S:
     def __init__(self, r): self.r, self.headers = r, {}
     def get(self, *a, **k): return self.r
-class _IG:
-    def __init__(self, r): self.s = _S(r)
-    def _sleep(self, s): pass
 def _req(r):
-    t = social.SocialTask(); return t.req(_IG(r), '/x')
+    from igscraper.ig import IG
+    c = IG('sessionid=s; csrftoken=c', 0, 0, lambda *a: None); c._sleep = lambda s: None
+    if not hasattr(r, 'cookies'): r.cookies = {}
+    c._cs = _S(r); c._cs.cookies = {}
+    t = social.SocialTask(); return t.req(c, '/x')
 def test_strict_stop_on_throttle():
     import pytest
     from igscraper.ig import Blocked

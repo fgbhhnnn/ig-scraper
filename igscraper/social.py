@@ -196,34 +196,38 @@ class SocialTask:
 
     # ---- IG 请求（严格：429/验证/登录失效立即停止） ----
     def _ig(self, cfg):
-        ig = IG(cfg['cookie'], 0, 0, self.log, self.stopped); return ig
-    def req(self, ig, path, ref='https://www.instagram.com/'):
-        if self._stop: return None
+        from . import config
+        return IG(cfg['cookie'], 0, 0, self.log, self.stopped, on_cookie=lambda ck: config.save({'cookie': ck}))
+    def _pace(self, ig):
         if self.state['requests']:
             if self.state['requests'] % REST_EVERY == 0:
                 w = random.uniform(*REST_SEC); self.log(f'已连续请求 {self.state["requests"]} 次，自动休息 {w/60:.1f} 分钟，降低风控风险'); ig._sleep(w)
             else: ig._sleep(random.uniform(*GAP))
+    def req(self, ig, path, ref='https://www.instagram.com/'):
+        """浏览器指纹 + 完整请求头；429/401/403/验证/登录失效立即停止"""
         if self._stop: return None
-        ig.s.headers['Referer'] = ref
-        try: r = ig.s.get('https://www.instagram.com' + path, timeout=40, allow_redirects=False)
-        except Exception as e: raise RuntimeError(f'网络/代理错误：{e.__class__.__name__}')
-        with self.lock: self.state['requests'] += 1
-        head = r.text[:1500]; loc = r.headers.get('Location', '')
-        if r.status_code == 429: raise Blocked('Instagram 返回 429（请求太频繁），已立即停止。已获取的结果已保存，建议休息几小时再继续')
-        if 'challenge' in head or 'checkpoint' in head or 'challenge' in loc or 'checkpoint' in loc:
-            raise Blocked('Instagram 要求安全验证（challenge/checkpoint），已立即停止。请在浏览器里登录处理后重新导出 Cookie')
-        if 'login_required' in head or 'login' in loc or r.status_code in (301, 302): raise Blocked('登录失效（login_required），已立即停止，请重新填写 Instagram Cookie')
-        if r.status_code in (401, 403) or 'Please wait a few minutes' in head or 'require_login' in head:
-            raise Blocked(f'Instagram 返回 {r.status_code}（「请稍等几分钟再试」= 临时限流），已立即停止。已获取的结果已保存，建议休息几小时再继续')
-        if r.status_code != 200: self.log(f'HTTP {r.status_code}：{path[:60]}'); return None
-        try: return r.json()
-        except Exception: raise Blocked('返回的不是数据（可能被登出），已停止')
+        self._pace(ig)
+        if self._stop: return None
+        try: st, o, txt = ig.api(path, None, ref)
+        finally:
+            with self.lock: self.state['requests'] += 1
+        if st != 200: self.log(f'HTTP {st}：{path[:60]}'); return None
+        if o is None: raise Blocked('返回的不是数据（可能被登出），已停止')
+        return o
+    def lookup_uid(self, ig, un):
+        """主页 HTML 取 uid；拿不到再用 web_profile_info（限流很严，只作最后手段）"""
+        self._pace(ig)
+        try: pk, priv = ig.profile_uid(un)
+        finally:
+            with self.lock: self.state['requests'] += 1
+        if pk: return pk, priv
+        self.log('主页里没找到 uid，改用 web_profile_info 接口')
+        d = self.req(ig, f'/api/v1/users/web_profile_info/?username={un}', f'https://www.instagram.com/{un}/')
+        u = ((d or {}).get('data') or {}).get('user') or {}
+        return u.get('id'), u.get('is_private')
     def avatar(self, ig, url):
-        if not url: return ''
-        try:
-            r = ig.s.get(url, timeout=30, headers={'Cookie': ''})
-            return base64.b64encode(r.content).decode() if r.status_code == 200 and len(r.content) > 200 else ''
-        except Exception: return ''
+        b = ig.avatar(url)
+        return base64.b64encode(b).decode() if b else ''
 
     def _run(self, cfg):
         ig = self._ig(cfg)
@@ -258,9 +262,7 @@ class SocialTask:
         pk, priv = j.get('target_pk'), j.get('target_private')
         if not pk: pk, priv = known_pk(un)
         if not pk:
-            d = self.req(ig, f'/api/v1/users/web_profile_info/?username={un}', f'https://www.instagram.com/{un}/')
-            u = ((d or {}).get('data') or {}).get('user') or {}
-            pk, priv = u.get('id'), u.get('is_private')
+            pk, priv = self.lookup_uid(ig, un)
             if not pk: self.log(f'找不到账号 @{un}'); return 0, '找不到账号'
             remember_pk(un, pk, 1 if priv else 0)
         update_job(j['id'], target_pk=str(pk))

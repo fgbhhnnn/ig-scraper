@@ -11,7 +11,8 @@ SERP_DOC_PAGE = ('PolarisKeywordSearchExplorePageRelayPaginationQuery', '2865689
 POST_DOC = ('PolarisPostRootQuery', '28188170744199537')
 POST_PV = ['AdDebugToolEnabled', 'MultiCaptionCarouselEnabled', 'ReelsRecoDebugOverlayEnabled', 'ShortDramaEnabled',
            'SuggestedUserFeedUnitCardsEnabled', 'ThreadsStyleCommentsEnabled']
-ASBD_ID = '359341'   # 网页 JS 里 BDHeaderConfig.ASBD_ID 的常量（2026-10）；运行时会尝试从 JS 更新
+ASBD_ID = '359341'
+RATE_MSG = 'Instagram 返回 429（请求太频繁），已立即停止，不会自动重试。已获取的结果已保存。建议等待 1~2 小时再继续，或更换代理 IP（避免多人/多账号共用同一 IP）'   # 网页 JS 里 BDHeaderConfig.ASBD_ID 的常量（2026-10）；运行时会尝试从 JS 更新
 # 运行时从 JS 包里发现的 doc_id / 常量（进程内缓存）
 DISCOVERED = {}
 
@@ -35,6 +36,7 @@ def scan_js(text, want, suffix='_instagramRelayOperation'):
 def page_app_id(html):
     m = re.search(r'"X-IG-App-ID":"(\d+)"', html) or re.search(r'"APP_ID":"(\d+)"', html)
     return m.group(1) if m else ''
+
 
 class Blocked(Exception): pass
 
@@ -60,8 +62,50 @@ def cookie_get(ck, name):
     m = re.search(r'(?:^|;\s*)' + re.escape(name) + r'=([^;]*)', ck)
     return m.group(1) if m else ''
 
+
+REFRESH = ('csrftoken', 'rur', 'mid', 'ds_user_id', 'sessionid', 'ig_did')
+
+def cookie_set(ck, upd):
+    """把服务器下发的新 Cookie 值合并进 'a=b; c=d' 字符串（只更新白名单里的字段，忽略删除/空值）"""
+    parts = [p.strip() for p in (ck or '').split(';') if '=' in p]
+    d = dict(p.split('=', 1) for p in parts); changed = False
+    for k, v in (upd or {}).items():
+        if k not in REFRESH or not v or v in ('""', 'deleted'): continue
+        v = v.strip('"')
+        if d.get(k) != v: d[k] = v; changed = True
+    return ('; '.join(f'{k}={v}' for k, v in d.items()), changed)
+
+def parse_profile_uid(html, username=''):
+    """主页 HTML -> (uid, is_private 或 None)"""
+    t = html or ''
+    m = re.search(r'"profile_id":"(\d+)"', t) or re.search(r'profilePage_(\d+)', t) or re.search(r'"profile_id":(\d+)', t)
+    if not m and username:
+        m = re.search(r'"id":"(\d+)"[^{}]{0,400}"username":"' + re.escape(username) + '"', t)
+    priv = re.search(r'"is_private":(true|false)', t)
+    return (m.group(1) if m else '', (priv.group(1) == 'true') if priv else None)
+
+def web_headers(ck, ref='https://www.instagram.com/', claim='0', app_id=APP_ID, asbd=None):
+    """网页 XHR 请求头（与浏览器一致）"""
+    return {'Cookie': ck, 'X-IG-App-ID': app_id or APP_ID, 'X-ASBD-ID': asbd or DISCOVERED.get('_asbd', ASBD_ID),
+            'X-CSRFToken': cookie_get(ck, 'csrftoken'), 'X-IG-WWW-Claim': claim or '0', 'X-Requested-With': 'XMLHttpRequest',
+            'Referer': ref, 'Accept': '*/*', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin'}
+
+def blocked_reason(status, text, loc=''):
+    """统一判断：429 / 验证 / 登录失效 / 「请稍等几分钟」。返回中文原因或 ''"""
+    head = (text or '')[:2000]
+    if status == 429: return RATE_MSG
+    if 'checkpoint' in head or 'challenge_required' in head or '"challenge"' in head or 'challenge' in loc or 'checkpoint' in loc:
+        return 'Instagram 要求安全验证（challenge/checkpoint），已立即停止。请在浏览器里登录处理后重新导出 Cookie'
+    if 'Please wait a few minutes' in head:
+        return 'Instagram 返回「请稍等几分钟再试」（临时限流），已立即停止。建议等待 1~2 小时再继续，或更换代理 IP'
+    if 'login_required' in head or 'require_login' in head or 'accounts/login' in loc:
+        return '登录失效（login_required），已立即停止，请重新填写 Instagram Cookie'
+    return ''
+
+
 class IG:
-    def __init__(self, cookie, dmin=1.5, dmax=3.0, log=print, stop=lambda: False):
+    def __init__(self, cookie, dmin=8.0, dmax=15.0, log=print, stop=lambda: False, on_cookie=None):
+        self.on_cookie = on_cookie; self.claim = '0'; self._av = None
         self.ck = parse_cookie(cookie); self.dmin, self.dmax = dmin, dmax; self.log = log; self.stop = stop
         self.s = requests.Session()
         self.s.headers.update({'Cookie': self.ck, 'X-IG-App-ID': APP_ID, 'X-CSRFToken': cookie_get(self.ck, 'csrftoken'),
@@ -91,8 +135,8 @@ class IG:
                 raise Blocked(f'被重定向到 {loc}（登录失效或需要验证）')
             if 'checkpoint_required' in head or '"challenge"' in head or 'challenge_required' in head:
                 raise Blocked('Instagram 要求安全验证(checkpoint)，已停止。请在浏览器里处理后重新导出 Cookie')
-            if r.status_code == 429:
-                w = 60 * (t + 1); self.log(f'429 限流，等待 {w}s'); self._sleep(w); continue
+            if r.status_code == 429: raise Blocked(RATE_MSG)
+            if 'Please wait a few minutes' in head: raise Blocked(blocked_reason(401, head))
             if r.status_code in (401, 403):
                 if 'login_required' in head or 'require_login' in head:
                     raise Blocked('登录失效(login_required)，请重新填写 Cookie')
@@ -151,6 +195,63 @@ class IG:
             if self.proxies: self._cs.proxies = self.proxies
         return self._cs
 
+    # ---- 浏览器指纹 + 完整请求头 + Set-Cookie 回写 ----
+    def _absorb(self, r):
+        c = r.headers.get('x-ig-set-www-claim')
+        if c: self.claim = c
+        try: upd = {k: v for k, v in r.cookies.items()}
+        except Exception: upd = {}
+        try: self.cs().cookies.clear()
+        except Exception: pass
+        ck, changed = cookie_set(self.ck, upd)
+        if changed:
+            self.ck = ck; self.s.headers['Cookie'] = ck; self.s.headers['X-CSRFToken'] = cookie_get(ck, 'csrftoken')
+            self.cs().headers.update({'Cookie': ck, 'X-CSRFToken': cookie_get(ck, 'csrftoken')})
+            if self.on_cookie:
+                try: self.on_cookie(ck)
+                except Exception: pass
+
+    def api(self, path, params=None, ref='https://www.instagram.com/', strict=True):
+        """GET https://www.instagram.com{path}（curl_cffi Chrome）。返回 (status, json或None, text)；限流/验证/登录失效抛 Blocked"""
+        if self.stop(): return 0, None, ''
+        h = web_headers(self.ck, ref, self.claim, self.cs().headers.get('X-IG-App-ID') or APP_ID)
+        try: r = self.cs().get('https://www.instagram.com' + path, params=params, headers=h, timeout=40, allow_redirects=False)
+        except Exception as e: raise RuntimeError(f'网络/代理错误：{e.__class__.__name__}')
+        self._absorb(r)
+        why = blocked_reason(r.status_code, r.text, r.headers.get('Location', ''))
+        if not why and r.status_code in (301, 302): why = blocked_reason(0, 'login_required')
+        if not why and strict and r.status_code in (401, 403):
+            why = f'Instagram 返回 {r.status_code}（临时限流或无权限），已立即停止。建议等待 1~2 小时再继续，或更换代理 IP'
+        if why: raise Blocked(why)
+        try: o = r.json()
+        except Exception: o = None
+        return r.status_code, o, r.text
+
+    def profile_uid(self, username):
+        """打开主页 HTML 取 uid（比 web_profile_info 接口宽松得多）。返回 (uid, is_private)"""
+        h = {'Cookie': self.ck, 'Referer': 'https://www.instagram.com/', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Site': 'same-origin'}
+        try: r = self.cs().get(f'https://www.instagram.com/{username}/', headers=h, timeout=40, allow_redirects=False)
+        except Exception as e: raise RuntimeError(f'网络/代理错误：{e.__class__.__name__}')
+        self._absorb(r)
+        why = blocked_reason(r.status_code, '', r.headers.get('Location', ''))  # HTML 正文里本来就有 challenge 等字样，只看状态码/跳转
+        if why: raise Blocked(why)
+        if 'not-logged-in' in r.text[:3000]: raise Blocked('Cookie 已失效（Instagram 显示未登录），请重新导出')
+        if r.status_code != 200: return '', None
+        return parse_profile_uid(r.text, username)
+
+    def avatar(self, url):
+        """头像走 CDN：单独会话、不带 IG 请求头/Cookie，每张间隔 0.5~1 秒"""
+        if not url: return b''
+        if self._av is None:
+            from curl_cffi import requests as cr
+            self._av = cr.Session(impersonate='chrome')
+            if self.proxies: self._av.proxies = self.proxies
+        self._sleep(random.uniform(0.5, 1.0))
+        try:
+            r = self._av.get(url, timeout=30)
+            return r.content if r.status_code == 200 and len(r.content) > 200 else b''
+        except Exception: return b''
+
     def _tokens(self, kw):
         """GraphQL 需要页面里的 fb_dtsg / lsd / actorID"""
         if self.tok: return self.tok
@@ -197,7 +298,8 @@ class IG:
         for t in range(3):
             try: r = self.cs().post('https://www.instagram.com/api/graphql', data=data, headers=h, timeout=40)
             except Exception as e: self.last_err = f'网络/代理错误：{e.__class__.__name__}'; self.log(self.last_err); self._sleep(5); continue
-            if r.status_code == 429: w = 60 * (t + 1); self.log(f'429 限流，等待 {w}s'); self._sleep(w); continue
+            self._absorb(r)
+            if r.status_code == 429: raise Blocked(RATE_MSG)
             head = r.text[:600]
             if 'checkpoint_required' in head or 'challenge_required' in head: raise Blocked('Instagram 要求安全验证(checkpoint)，已停止。请在浏览器里处理后重新导出 Cookie')
             try: o = r.json()
@@ -339,11 +441,13 @@ class IG:
         for ch in shortcode[:11]: pk = pk * 64 + A.index(ch)
         return str(pk)
 
-    def _v1(self, path, params):
-        H = {'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin'}
-        old = dict(self.s.headers); self.s.headers.update(H)
-        try: return self.get(path, params)
-        finally: self.s.headers.clear(); self.s.headers.update(old)
+    def _v1(self, path, params, ref='https://www.instagram.com/'):
+        """评论 REST：浏览器指纹 + 完整网页请求头（普通 requests 会被返回 HTML）"""
+        self._sleep(random.uniform(self.dmin, self.dmax))
+        st, o, txt = self.api(path, params, ref)
+        if st != 200 or o is None:
+            self.last_err = f'HTTP {st}（{path}）' + ('' if o is not None or st != 200 else '：返回的不是 JSON'); self.log(self.last_err); return None
+        return o
 
     def _v1_fill(self, shortcode, out, seen, max_comments, replies, unlimited):
         """Continue/fill comments through /api/v1/media/{pk}/comments/ (min_id paging) and child_comments for replies."""
