@@ -75,14 +75,45 @@ def cookie_set(ck, upd):
         if d.get(k) != v: d[k] = v; changed = True
     return ('; '.join(f'{k}={v}' for k, v in d.items()), changed)
 
+def norm_username(x):
+    """'@Name' / 'https://www.instagram.com/name/?igsh=..' / 'instagram.com/name/reels' -> 'name'"""
+    x = (x or '').strip().strip('"\'').split('?')[0].split('#')[0].strip()
+    m = re.search(r'instagram\.com/(?:_u/)?([A-Za-z0-9._]+)', x)
+    if m: x = m.group(1)
+    else: x = x.strip('/').split('/')[0]
+    return x.lstrip('@').strip().lower()
+
+UID_PATTERNS = [r'"profile_id":"(\d+)"', r'profilePage_(\d+)', r'"props":\{"id":"(\d+)"', r'"target_id":"(\d+)"',
+                r'"profile_id":(\d+)', r'"user_id":"(\d+)"']
 def parse_profile_uid(html, username=''):
-    """主页 HTML -> (uid, is_private 或 None)"""
-    t = html or ''
-    m = re.search(r'"profile_id":"(\d+)"', t) or re.search(r'profilePage_(\d+)', t) or re.search(r'"profile_id":(\d+)', t)
-    if not m and username:
-        m = re.search(r'"id":"(\d+)"[^{}]{0,400}"username":"' + re.escape(username) + '"', t)
+    """主页 HTML -> (uid, is_private 或 None)。多种页面变体都试一遍"""
+    t = html or ''; uid = ''
+    if username:
+        u = re.escape(username)
+        for p in (r'"id":"(\d+)"[^{}]{0,400}"username":"' + u + '"', r'"username":"' + u + r'"[^{}]{0,400}"id":"(\d+)"',
+                  r'"pk":"?(\d+)"?[^{}]{0,400}"username":"' + u + '"'):
+            m = re.search(p, t, re.I)
+            if m: uid = m.group(1); break
+    if not uid:
+        for p in UID_PATTERNS:
+            m = re.search(p, t)
+            if m: uid = m.group(1); break
     priv = re.search(r'"is_private":(true|false)', t)
-    return (m.group(1) if m else '', (priv.group(1) == 'true') if priv else None)
+    return (uid, (priv.group(1) == 'true') if priv else None)
+
+def page_title(html):
+    m = re.search(r'<title[^>]*>([^<]{0,120})', html or '')
+    return (m.group(1).strip() if m else '').replace('&#064;', '@')
+
+MOBILE_UA = 'Instagram 364.0.0.35.86 Android (34/14; 420dpi; 1080x2340; samsung; SM-S918B; dm3q; qcom; en_US; 374010953)'
+def mobile_headers(ck):
+    """用网页 Cookie 里的 sessionid 生成 App 接口的 Bearer（只读查询用）"""
+    import base64
+    from urllib.parse import unquote
+    auth = 'Bearer IGT:2:' + base64.b64encode(json.dumps({'ds_user_id': cookie_get(ck, 'ds_user_id'), 'sessionid': unquote(cookie_get(ck, 'sessionid')),
+                                                        'should_use_header_over_cookies': True}).encode()).decode()
+    return {'User-Agent': MOBILE_UA, 'X-IG-App-ID': '567067343352427', 'Authorization': auth, 'X-IG-Capabilities': '3brTv10=',
+            'X-IG-Connection-Type': 'WIFI', 'X-FB-HTTP-Engine': 'Liger', 'Accept-Language': 'en-US'}
 
 def web_headers(ck, ref='https://www.instagram.com/', claim='0', app_id=APP_ID, asbd=None):
     """网页 XHR 请求头（与浏览器一致）"""
@@ -228,16 +259,46 @@ class IG:
         return r.status_code, o, r.text
 
     def profile_uid(self, username):
-        """打开主页 HTML 取 uid（比 web_profile_info 接口宽松得多）。返回 (uid, is_private)"""
+        """打开主页 HTML 取 uid（比 web_profile_info 接口宽松得多）。返回 (uid, is_private)；
+        站内跳转最多跟 3 次；跳到登录页 = Cookie 失效；取不到时把诊断信息写进日志"""
+        username = norm_username(username)
+        url = f'https://www.instagram.com/{username}/'
         h = {'Cookie': self.ck, 'Referer': 'https://www.instagram.com/', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Site': 'same-origin'}
-        try: r = self.cs().get(f'https://www.instagram.com/{username}/', headers=h, timeout=40, allow_redirects=False)
+        for _ in range(4):
+            try: r = self.cs().get(url, headers=h, timeout=40, allow_redirects=False)
+            except Exception as e: raise RuntimeError(f'网络/代理错误：{e.__class__.__name__}')
+            self._absorb(r)
+            loc = r.headers.get('Location', '') or ''
+            if r.status_code == 429: raise Blocked('打开主页取账号 ID 时 ' + RATE_MSG)
+            if 'accounts/login' in loc: raise Blocked('打开主页被跳转到登录页：Instagram Cookie 已失效或不被接受，请在浏览器重新登录后重新导出 Cookie')
+            why = blocked_reason(r.status_code, '', loc)  # HTML 正文里本来就有 challenge 等字样，只看状态码/跳转
+            if why: raise Blocked(why)
+            if r.status_code in (301, 302, 303, 307, 308) and loc:
+                url = loc if loc.startswith('http') else 'https://www.instagram.com' + loc
+                if 'instagram.com' not in url: break
+                continue
+            break
+        t = r.text or ''
+        if 'not-logged-in' in t[:3000]: raise Blocked('主页显示未登录：Instagram Cookie 已失效，请重新导出')
+        uid, priv = parse_profile_uid(t, username) if r.status_code == 200 else ('', None)
+        if not uid:
+            self.log(f'主页取 uid 失败：地址 {url}，HTTP {r.status_code}，标题「{page_title(t) or "无"}」，大小 {len(t)} 字节'
+                     + (f'，跳转到 {loc}' if loc else ''))
+        return uid, priv
+
+    def mobile_uid(self, username):
+        """App 接口 i.instagram.com/api/v1/users/{username}/usernameinfo/（比 web_profile_info 宽松）"""
+        username = norm_username(username)
+        try: r = self.cs().get(f'https://i.instagram.com/api/v1/users/{username}/usernameinfo/', headers=mobile_headers(self.ck), timeout=40, allow_redirects=False)
         except Exception as e: raise RuntimeError(f'网络/代理错误：{e.__class__.__name__}')
-        self._absorb(r)
-        why = blocked_reason(r.status_code, '', r.headers.get('Location', ''))  # HTML 正文里本来就有 challenge 等字样，只看状态码/跳转
-        if why: raise Blocked(why)
-        if 'not-logged-in' in r.text[:3000]: raise Blocked('Cookie 已失效（Instagram 显示未登录），请重新导出')
-        if r.status_code != 200: return '', None
-        return parse_profile_uid(r.text, username)
+        try: self.cs().cookies.clear()
+        except Exception: pass
+        why = blocked_reason(r.status_code, r.text, r.headers.get('Location', ''))
+        if why: raise Blocked('用 App 接口查账号 ID 时 ' + why)
+        try: u = (r.json() or {}).get('user') or {}
+        except Exception: u = {}
+        if not u.get('pk'): self.log(f'App 接口没查到 @{username}（HTTP {r.status_code}）')
+        return str(u.get('pk') or u.get('pk_id') or ''), u.get('is_private')
 
     def avatar(self, url):
         """头像走 CDN：单独会话、不带 IG 请求头/Cookie，每张间隔 0.5~1 秒"""

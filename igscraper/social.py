@@ -215,14 +215,21 @@ class SocialTask:
         if o is None: raise Blocked('返回的不是数据（可能被登出），已停止')
         return o
     def lookup_uid(self, ig, un):
-        """主页 HTML 取 uid；拿不到再用 web_profile_info（限流很严，只作最后手段）"""
-        self._pace(ig)
-        try: pk, priv = ig.profile_uid(un)
-        finally:
-            with self.lock: self.state['requests'] += 1
-        if pk: return pk, priv
-        self.log('主页里没找到 uid，改用 web_profile_info 接口')
-        d = self.req(ig, f'/api/v1/users/web_profile_info/?username={un}', f'https://www.instagram.com/{un}/')
+        """取 uid：主页 HTML → App 接口 usernameinfo → web_profile_info（限流最严，最后才用）"""
+        steps = [('主页', lambda: ig.profile_uid(un)), ('App 接口', lambda: ig.mobile_uid(un))]
+        for i, (name, fn) in enumerate(steps):
+            self._pace(ig)
+            try: pk, priv = fn()
+            finally:
+                with self.lock: self.state['requests'] += 1
+            if pk:
+                if i: self.log(f'通过{name}拿到 @{un} 的账号 ID')
+                return pk, priv
+            self.log(f'{name}没拿到 @{un} 的账号 ID，换下一种方式')
+        try: d = self.req(ig, f'/api/v1/users/web_profile_info/?username={un}', f'https://www.instagram.com/{un}/')
+        except Blocked as e:
+            if '429' in str(e): raise Blocked('查账号 ID 被限流（web_profile_info 返回 429），已停止。主页和 App 接口都没拿到 ID；请等 1~2 小时或更换代理 IP 再试，也可以检查账号名是否正确')
+            raise
         u = ((d or {}).get('data') or {}).get('user') or {}
         return u.get('id'), u.get('is_private')
     def avatar(self, ig, url):
@@ -258,7 +265,8 @@ class SocialTask:
             self.log(f'拿到 {len(us)} 个点赞用户（帖子显示 {d.get("user_count") if d else "?"} 个赞）')
             return self._finish(cfg, ig, j, us, 'likers'), LIKERS_CAP_NOTE
         # followers / following
-        un = (j.get('target') or '').strip().lstrip('@').split('?')[0].rstrip('/').split('/')[-1]
+        from .ig import norm_username
+        un = norm_username(j.get('target'))
         pk, priv = j.get('target_pk'), j.get('target_private')
         if not pk: pk, priv = known_pk(un)
         if not pk:

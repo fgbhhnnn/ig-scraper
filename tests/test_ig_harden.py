@@ -61,3 +61,35 @@ def test_get_429_no_retry(monkeypatch):
 def test_profile_uid_method():
     c, _ = mk([R(200, '<html>"profile_id":"999"</html>')])
     assert c.profile_uid('bob')[0] == '999'
+
+def test_norm_username():
+    for x in ['@Form_Leathercraft', 'https://www.instagram.com/form_leathercraft/?igsh=abc', 'instagram.com/form_leathercraft/reels/',
+              ' form_leathercraft/ ', 'https://instagram.com/_u/form_leathercraft', 'form_leathercraft?hl=zh-cn']:
+        assert I.norm_username(x) == 'form_leathercraft', x
+
+def test_uid_variants():
+    for t in ['"props":{"id":"5","x":1}', '"target_id":"5"', '"user_id":"5"', '{"pk":"5","username":"bob"}',
+              '{"username":"Bob","full_name":"","id":"5"}', 'meta content="profilePage_5"']:
+        assert I.parse_profile_uid(t, 'bob')[0] == '5', t
+
+def test_real_samples():
+    import glob, os
+    fs = glob.glob('/workspace/ig429/p_*.html')
+    if not fs: pytest.skip('no samples')
+    for f in fs:
+        t = open(f).read()
+        if len(t) > 1000: assert I.parse_profile_uid(t, 'form_leathercraft')[0] == '45322071413', f
+
+def test_profile_redirect_login_and_follow():
+    c, _ = mk([R(302, '', {'Location': 'https://www.instagram.com/accounts/login/?next=x'})])
+    with pytest.raises(Blocked, match='登录页'): c.profile_uid('bob')
+    c, _ = mk([R(301, '', {'Location': '/bob/'}), R(200, '"profile_id":"9"')])
+    assert c.profile_uid('@Bob')[0] == '9'
+    logs = []; c, _ = mk([R(200, '<title>Page</title>')]); c.log = logs.append
+    assert c.profile_uid('bob')[0] == '' and '标题「Page」' in logs[-1]
+
+def test_mobile_uid():
+    c, _ = mk([R(200, '{"user":{"pk":123,"is_private":false}}')])
+    assert c.mobile_uid('bob') == ('123', False)
+    h = I.mobile_headers('sessionid=a%3Ab; ds_user_id=1')
+    assert h['Authorization'].startswith('Bearer IGT:2:')
